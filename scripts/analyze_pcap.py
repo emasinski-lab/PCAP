@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Script d'analyse AVANCÉE de fichiers PCAP pour le trafic entrant
 Utilise Scapy pour analyser les fichiers PCAP existants avec extraction maximale d'informations
@@ -16,6 +17,12 @@ from collections import defaultdict, Counter
 import argparse
 import json
 import base64
+
+# Forcer l'encodage UTF-8 pour la sortie console (surtout sous Windows)
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 try:
     from scapy.all import *
@@ -859,26 +866,26 @@ class PCAPAnalyzer:
         if len(self.stats['dest_ports']) > 20:
             unique_ports = len(self.stats['dest_ports'])
             if unique_ports > 50:
-                suspicious_findings.append(f"⚠️  Possible port scanning: {unique_ports} ports différents ciblés")
+                suspicious_findings.append(f"[ALERTE] Possible port scanning: {unique_ports} ports differents cibles")
         
         # 2. Beaucoup de connexions depuis une seule IP
         if self.stats['sources']:
             max_connections = max(self.stats['sources'].values())
             if max_connections > 1000:
                 suspicious_ip = max(self.stats['sources'].items(), key=lambda x: x[1])[0]
-                suspicious_findings.append(f"⚠️  Beaucoup de connexions depuis {suspicious_ip}: {max_connections} paquets")
+                suspicious_findings.append(f"[ALERTE] Beaucoup de connexions depuis {suspicious_ip}: {max_connections} paquets")
         
         # 3. Trafic ICMP excessif (ping flood)
         if self.stats['icmp_packets'] > 100:
             percentage = (self.stats['icmp_packets'] / self.stats['total_packets'] * 100) if self.stats['total_packets'] > 0 else 0
             if percentage > 10:
-                suspicious_findings.append(f"⚠️  Trafic ICMP élevé: {self.stats['icmp_packets']} paquets ({percentage:.1f}%)")
+                suspicious_findings.append(f"[ALERTE] Trafic ICMP eleve: {self.stats['icmp_packets']} paquets ({percentage:.1f}%)")
         
         # 4. Trafic sur des ports suspects
         suspicious_ports = [22, 23, 21, 3389, 5900, 4444, 6667]
         for port in suspicious_ports:
             if port in self.stats['dest_ports']:
-                suspicious_findings.append(f"⚠️  Trafic sur port suspect {port} ({APPLICATION_PORTS.get(port, 'UNKNOWN')}): {self.stats['dest_ports'][port]} paquets")
+                suspicious_findings.append(f"[ALERTE] Trafic sur port suspect {port} ({APPLICATION_PORTS.get(port, 'UNKNOWN')}): {self.stats['dest_ports'][port]} paquets")
         
         # 5. Beaucoup de SYN sans ACK (SYN flood)
         if 'SYN' in self.stats['tcp_flags']:
@@ -886,19 +893,19 @@ class PCAPAnalyzer:
             if syn_count > 100:
                 percentage = (syn_count / sum(self.stats['tcp_flags'].values()) * 100) if self.stats['tcp_flags'] else 0
                 if percentage > 30:
-                    suspicious_findings.append(f"⚠️  Beaucoup de paquets SYN: {syn_count} ({percentage:.1f}%)")
+                    suspicious_findings.append(f"[ALERTE] Beaucoup de paquets SYN: {syn_count} ({percentage:.1f}%)")
         
         # 6. Détection de credentials dans le trafic
         if self.deep_analysis and self.extracted_data['credentials']:
-            suspicious_findings.append(f"⚠️  {len(self.extracted_data['credentials'])} credentials potentiels détectés dans le payload")
+            suspicious_findings.append(f"[ALERTE] {len(self.extracted_data['credentials'])} credentials potentiels detectes dans le payload")
         
         # 7. Détection d'API keys
         if self.deep_analysis and self.extracted_data['api_keys']:
-            suspicious_findings.append(f"⚠️  {len(self.extracted_data['api_keys'])} API keys potentielles détectées")
+            suspicious_findings.append(f"[ALERTE] {len(self.extracted_data['api_keys'])} API keys potentielles detectees")
         
         # 8. Détection de JWT tokens
         if self.deep_analysis and self.extracted_data['jwt_tokens']:
-            suspicious_findings.append(f"⚠️  {len(self.extracted_data['jwt_tokens'])} JWT tokens détectés")
+            suspicious_findings.append(f"[ALERTE] {len(self.extracted_data['jwt_tokens'])} JWT tokens detectes")
         
         if suspicious_findings:
             for finding in suspicious_findings:
