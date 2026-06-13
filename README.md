@@ -28,16 +28,18 @@ pip install scapy
 
 ```
 PCAP/
-├── LANCER.py                     # Script principal de lancement
-├── README.md                     # Documentation
-├── requirements.txt              # Dépendances
-├── Brutes/                       # Dossier pour les fichiers PCAP à analyser
+├── LANCER.py                     # 🎯 Script principal de lancement
+├── README.md                     # 📖 Documentation
+├── requirements.txt              # 📦 Dépendances (Scapy uniquement)
+├── Brutes/                       # 📥 Dossier pour les fichiers PCAP à analyser
 │   └── *.pcap                    # Placez vos fichiers PCAP ici
-└── Sortie/                       # Dossier pour les résultats
-    └── *.txt, *.json              # Rapports et statistiques générés
+├── Sortie/                       # 📤 Dossier pour les résultats
+│   └── *.txt, *.json             # Rapports et statistiques générés
+├── Error/                        # ⚠️ Dossier pour les logs d'erreurs
+│   └── error.log                # Log des erreurs d'analyse
 └── scripts/
-    ├── analyze_pcap.py            # Moteur d'analyse avancée
-    └── utils.py                   # Utilitaires (filtrage, extraction, etc.)
+    ├── analyze_pcap.py            # 🔍 Moteur d'analyse avancée
+    └── utils.py                   # 🛠️ Utilitaires (filtrage, extraction, etc.)
 ```
 
 ## 🚀 Utilisation
@@ -53,7 +55,8 @@ PCAP/
 │   ├── capture1.pcap
 │   ├── capture2.pcap
 │   └── capture3.pcapng
-└── Sortie/
+├── Sortie/
+└── Error/
 ```
 
 ### 2. Lancement de l'analyse
@@ -92,6 +95,16 @@ python LANCER.py --deep --all-formats
 
 ```bash
 python LANCER.py --help
+```
+
+### 4. Vérifier les erreurs
+
+```bash
+# Afficher les erreurs enregistrées
+cat Error/error.log
+
+# Vider le log des erreurs
+> Error/error.log
 ```
 
 ## 📊 Fonctionnalités d'analyse

@@ -38,9 +38,10 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Dossiers de travail
+# Dossiers de travail (contenus ignorés, structure conservée)
 Brutes/
 Sortie/
+Error/
 
 # Fichiers de sortie
 *.pcap

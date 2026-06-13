@@ -4,6 +4,7 @@ Script de lancement principal pour l'analyse des fichiers PCAP
 
 Ce script permet de lancer toutes les analyses sur les fichiers PCAP
 présents dans le dossier 'Brutes/' et sauvegarde les résultats dans 'Sortie/'
+Les erreurs sont enregistrées dans 'Error/error.log'
 
 Usage:
     python LANCER.py                    # Analyse tous les fichiers PCAP
@@ -17,6 +18,7 @@ import sys
 import os
 import argparse
 import subprocess
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -24,10 +26,46 @@ from pathlib import Path
 # Chemins des dossiers
 BRUTES_DIR = "Brutes"
 SORTIE_DIR = "Sortie"
+ERROR_DIR = "Error"
 SCRIPTS_DIR = "scripts"
+
+# Fichier de log des erreurs
+ERROR_LOG = os.path.join(ERROR_DIR, "error.log")
 
 # Extensions de fichiers PCAP
 PCAP_EXTENSIONS = ['.pcap', '.pcapng', '.cap']
+
+
+def setup_logging():
+    """Configure le logging des erreurs"""
+    # Créer le dossier Error s'il n'existe pas
+    if not os.path.exists(ERROR_DIR):
+        os.makedirs(ERROR_DIR)
+    
+    # Configurer le logger
+    logger = logging.getLogger('PCAP_Analyzer')
+    logger.setLevel(logging.ERROR)
+    
+    # Handler pour le fichier de log
+    file_handler = logging.FileHandler(ERROR_LOG)
+    file_handler.setLevel(logging.ERROR)
+    
+    # Formatter
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    
+    # Ajouter le handler
+    logger.addHandler(file_handler)
+    
+    return logger
+
+
+def log_error(logger, message, exc_info=None):
+    """Enregistre une erreur dans le log"""
+    if exc_info:
+        logger.error(message, exc_info=exc_info)
+    else:
+        logger.error(message)
 
 
 def get_pcap_files(directory):
@@ -48,7 +86,7 @@ def get_pcap_files(directory):
 
 def ensure_directories():
     """Vérifie que les dossiers nécessaires existent"""
-    for directory in [BRUTES_DIR, SORTIE_DIR]:
+    for directory in [BRUTES_DIR, SORTIE_DIR, ERROR_DIR]:
         if not os.path.exists(directory):
             os.makedirs(directory)
             print(f"Dossier '{directory}' créé")
@@ -71,7 +109,7 @@ def get_output_filename(input_file, suffix="", extension=".txt"):
     return os.path.join(SORTIE_DIR, output_filename)
 
 
-def run_analysis(input_file, deep_analysis=False, output_format="txt"):
+def run_analysis(input_file, deep_analysis=False, output_format="txt", logger=None):
     """Exécute l'analyse sur un fichier PCAP"""
     print(f"\n{'='*70}")
     print(f"Analyse du fichier: {input_file}")
@@ -112,7 +150,7 @@ def run_analysis(input_file, deep_analysis=False, output_format="txt"):
         # Afficher la sortie
         print(result.stdout)
         if result.stderr:
-            print("Erreurs:", result.stderr)
+            print("Avertissements:", result.stderr)
         
         print(f"✓ Analyse terminée pour {input_file}")
         if output_format != "none":
@@ -121,41 +159,56 @@ def run_analysis(input_file, deep_analysis=False, output_format="txt"):
         return True
         
     except subprocess.CalledProcessError as e:
-        print(f"✗ Erreur lors de l'analyse de {input_file}:")
-        print(e.stderr)
+        error_msg = f"Erreur lors de l'analyse de {input_file}: {e.stderr}"
+        print(f"✗ {error_msg}")
+        if logger:
+            log_error(logger, error_msg)
         return False
     except Exception as e:
-        print(f"✗ Erreur inattendue: {e}")
+        error_msg = f"Erreur inattendue lors de l'analyse de {input_file}: {str(e)}"
+        print(f"✗ {error_msg}")
+        if logger:
+            log_error(logger, error_msg, exc_info=True)
         return False
 
 
-def analyze_single_file(filepath, deep_analysis=False, output_format="txt"):
+def analyze_single_file(filepath, deep_analysis=False, output_format="txt", logger=None):
     """Analyse un fichier PCAP unique"""
     if not os.path.exists(filepath):
-        print(f"Erreur: Le fichier {filepath} n'existe pas")
+        error_msg = f"Fichier introuvable: {filepath}"
+        print(f"✗ {error_msg}")
+        if logger:
+            log_error(logger, error_msg)
         return False
     
-    return run_analysis(filepath, deep_analysis, output_format)
+    return run_analysis(filepath, deep_analysis, output_format, logger)
 
 
-def analyze_all_files(deep_analysis=False, output_format="txt"):
+def analyze_all_files(deep_analysis=False, output_format="txt", logger=None):
     """Analyse tous les fichiers PCAP dans le dossier Brutes"""
     pcap_files = get_pcap_files(BRUTES_DIR)
     
     if not pcap_files:
-        print(f"Aucun fichier PCAP trouvé dans {BRUTES_DIR}/")
+        error_msg = f"Aucun fichier PCAP trouvé dans {BRUTES_DIR}/"
+        print(error_msg)
+        if logger:
+            log_error(logger, error_msg)
         return False
     
     print(f"Trouvé {len(pcap_files)} fichier(s) PCAP dans {BRUTES_DIR}/")
     
     success_count = 0
     for pcap_file in pcap_files:
-        if run_analysis(pcap_file, deep_analysis, output_format):
+        if run_analysis(pcap_file, deep_analysis, output_format, logger):
             success_count += 1
     
     print(f"\n{'='*70}")
     print(f"Analyse terminée: {success_count}/{len(pcap_files)} fichiers traités avec succès")
     print(f"{'='*70}")
+    
+    # Enregistrer un résumé dans le log
+    if logger:
+        logger.info(f"Analyse terminée: {success_count}/{len(pcap_files)} fichiers traités")
     
     return success_count == len(pcap_files)
 
@@ -168,11 +221,12 @@ SCRIPT DE LANCEMENT POUR L'ANALYSE PCAP
 ================================================================================
 
 Ce script permet d'analyser les fichiers PCAP présents dans le dossier 'Brutes/'
-et sauvegarde les résultats dans 'Sortie/'
+et sauvegarde les résultats dans 'Sortie/'. Les erreurs sont enregistrées dans 'Error/'
 
 DOSSIERS:
   Brutes/   - Contient les fichiers PCAP à analyser
   Sortie/   - Contiendra les rapports et résultats
+  Error/    - Contiendra les logs d'erreurs (error.log)
 
 USAGE:
   1. Analyse de tous les fichiers PCAP dans Brutes/:
@@ -214,9 +268,13 @@ EXEMPLES COMPLETS:
   # Analyse avec sauvegarde JSON uniquement
   python LANCER.py --json
 
+  # Vérifier les erreurs
+  cat Error/error.log
+
 NOTES:
   - Les fichiers PCAP doivent être dans le dossier 'Brutes/'
   - Les résultats seront sauvegardés dans 'Sortie/'
+  - Les erreurs seront enregistrées dans 'Error/error.log'
   - L'analyse approfondie (--deep) est plus lente mais extrait plus d'informations
   - Les formats supportés: .pcap, .pcapng, .cap
 
@@ -276,6 +334,9 @@ def main():
         show_help()
         return 0
     
+    # Configurer le logging
+    logger = setup_logging()
+    
     # Vérifier que les dossiers existent
     ensure_directories()
     
@@ -288,15 +349,23 @@ def main():
     else:
         output_format = "txt"
     
+    # Enregistrer le début de l'analyse
+    logger.info(f"Début de l'analyse - Options: deep={args.deep}, format={output_format}")
+    
     # Analyser
     if args.file:
         # Analyse d'un fichier spécifique
-        if not analyze_single_file(args.file, args.deep, output_format):
+        if not analyze_single_file(args.file, args.deep, output_format, logger):
+            logger.error(f"Échec de l'analyse du fichier: {args.file}")
             return 1
     else:
         # Analyse de tous les fichiers dans Brutes/
-        if not analyze_all_files(args.deep, output_format):
+        if not analyze_all_files(args.deep, output_format, logger):
+            logger.error("Échec de l'analyse par lots")
             return 1
+    
+    # Enregistrer la fin de l'analyse
+    logger.info("Analyse terminée avec succès")
     
     return 0
 
