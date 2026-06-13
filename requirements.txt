@@ -1,0 +1,4 @@
+# Requirements pour l'analyse PCAP avec Scapy
+# Compatible avec Python 3.9.14
+
+scapy>=2.4.0
