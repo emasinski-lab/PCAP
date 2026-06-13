@@ -1,15 +1,24 @@
-# PCAP - Analyse de flux réseau entrant
+# PCAP - Analyse Approfondie de Flux Réseau Entrant
 
-Projet d'analyse de trafic réseau entrant utilisant **Scapy** et **Python 3.9.14**.
+Projet d'analyse **ultra-détaillée** de fichiers PCAP pour le trafic entrant, avec extraction maximale d'informations pour éviter d'utiliser Wireshark manuellement.
 
 ## 📋 Description
 
-Ce projet fournit une suite d'outils pour capturer, analyser et interpréter des fichiers PCAP, avec un focus particulier sur le **trafic entrant** (incoming traffic).
+Ce projet fournit une suite d'outils pour **analyser automatiquement** les fichiers PCAP avec un focus sur :
+
+- ✅ **Identification des applications** (HTTP, HTTPS, DNS, SSH, SMTP, etc.)
+- ✅ **Extraction des variables** (emails, numéros de téléphone, IDs, tokens, etc.)
+- ✅ **Classification par écosystème** (Android, iOS, Web, IoT, VoIP, etc.)
+- ✅ **Détection des supports** (email, SMS, VoIP, messagerie instantanée)
+- ✅ **Analyse de sécurité** (patterns suspects, credentials, API keys)
+- ✅ **Statistiques complètes** (protocoles, ports, conversations, etc.)
+
+**Tout cela sans avoir à ouvrir Wireshark et faire des filtres manuellement !**
 
 ## 🛠️ Prérequis
 
-- Python 3.9.14
-- Scapy (seul dépendance requise)
+- Python 3.9.14 (comme demandé)
+- Scapy (seule dépendance requise)
 
 ```bash
 pip install scapy
@@ -19,119 +28,179 @@ pip install scapy
 
 ```
 PCAP/
-├── scripts/                  # Scripts principaux
-│   ├── capture_incoming.py  # Capture de trafic entrant en temps réel
-│   ├── analyze_pcap.py      # Analyse avancée de fichiers PCAP
-│   └── utils.py             # Utilitaires (filtrage, fusion, etc.)
-├── data/                    # Dossier pour les fichiers PCAP
-├── results/                 # Dossier pour les rapports et résultats
-└── README.md
+├── LANCER.py                     # Script principal de lancement
+├── README.md                     # Documentation
+├── requirements.txt              # Dépendances
+├── Brutes/                       # Dossier pour les fichiers PCAP à analyser
+│   └── *.pcap                    # Placez vos fichiers PCAP ici
+└── Sortie/                       # Dossier pour les résultats
+    └── *.txt, *.json              # Rapports et statistiques générés
+└── scripts/
+    ├── analyze_pcap.py            # Moteur d'analyse avancée
+    └── utils.py                   # Utilitaires (filtrage, extraction, etc.)
 ```
 
 ## 🚀 Utilisation
 
-### 1. Capture de trafic entrant en temps réel
+### 1. Préparation
+
+Placez vos fichiers PCAP dans le dossier **`Brutes/`** :
 
 ```bash
-# Capture sur une interface spécifique pendant 60 secondes
-python scripts/capture_incoming.py eth0 60 capture.pcap
-
-# Avec des options détaillées
-python scripts/capture_incoming.py -i wlan0 -t 30 -o incoming.pcap
-
-# Lister les interfaces disponibles
-python scripts/capture_incoming.py --list-interfaces
+# Exemple :
+PCAP/
+├── Brutes/
+│   ├── capture1.pcap
+│   ├── capture2.pcap
+│   └── capture3.pcapng
+└── Sortie/
 ```
 
-**Options:**
-- `-i, --interface`: Interface réseau (eth0, wlan0, etc.)
-- `-t, --timeout`: Durée de capture en secondes (par défaut: 60)
-- `-o, --output`: Fichier de sortie PCAP
-- `--list-interfaces`: Affiche les interfaces disponibles
+### 2. Lancement de l'analyse
 
-### 2. Analyse de fichiers PCAP existants
-
+#### Analyse basique (rapide)
 ```bash
-# Analyse complète
-python scripts/analyze_pcap.py capture.pcap
+# Analyser tous les fichiers dans Brutes/
+python LANCER.py
 
-# Analyse du trafic entrant uniquement
-python scripts/analyze_pcap.py -f capture.pcap --incoming-only
-
-# Sauvegarder un rapport texte
-python scripts/analyze_pcap.py -f capture.pcap -o rapport.txt
-
-# Sauvegarder les statistiques au format JSON
-python scripts/analyze_pcap.py -f capture.pcap --json stats.json
+# Analyser un fichier spécifique
+python LANCER.py Brutes/capture1.pcap
 ```
 
-**Options:**
-- `-f, --file`: Fichier PCAP à analyser
-- `-o, --output`: Fichier de sortie pour le rapport
-- `--json`: Fichier de sortie pour les statistiques JSON
-- `--incoming-only`: Afficher uniquement l'analyse du trafic entrant
+#### Analyse approfondie (extraction de données)
+```bash
+# Avec extraction de toutes les données (emails, téléphones, IDs, etc.)
+python LANCER.py --deep
 
-### 3. Utilitaires
+# Sur un fichier spécifique avec extraction
+python LANCER.py Brutes/capture1.pcap --deep
+```
+
+#### Sauvegarde dans différents formats
+```bash
+# Sauvegarde au format JSON (pour intégration avec d'autres outils)
+python LANCER.py --json
+
+# Sauvegarde dans tous les formats (texte + JSON)
+python LANCER.py --all-formats
+
+# Combinaison : analyse approfondie + tous les formats
+python LANCER.py --deep --all-formats
+```
+
+### 3. Afficher l'aide
 
 ```bash
-# Filtrer les paquets entrants
-python scripts/utils.py filter-incoming input.pcap output.pcap
-
-# Extraire les conversations individuelles
-python scripts/utils.py extract-conversations input.pcap conversations/
-
-# Obtenir des statistiques rapides
-python scripts/utils.py stats input.pcap
-
-# Fusionner plusieurs fichiers PCAP
-python scripts/utils.py merge output.pcap input1.pcap input2.pcap
+python LANCER.py --help
 ```
 
 ## 📊 Fonctionnalités d'analyse
 
-### Analyse du trafic entrant
+### 🎯 Identification des Applications
 
-Le système identifie le trafic entrant en utilisant plusieurs méthodes :
+Le système identifie automatiquement **plus de 30 types d'applications** :
 
-1. **Flags TCP**: 
-   - SYN sans ACK = Nouvelle connexion entrante
-   - ACK sans SYN = Réponse à une connexion sortante (donc entrant)
-   - Données avec PSH ou ACK
+| Catégorie | Applications | Ports |
+|----------|-------------|-------|
+| **Web** | HTTP, HTTPS, HTTP-ALT, HTTPS-ALT | 80, 443, 8080, 8443 |
+| **DNS** | DNS, mDNS | 53, 5353 |
+| **Email** | SMTP, SMTPS, POP3, POP3S, IMAP, IMAPS | 25, 465, 587, 110, 995, 143, 993 |
+| **Messagerie** | XMPP, XMPPS, SIP, SIPS | 5222, 5223, 5060, 5061 |
+| **Bases de données** | MySQL, PostgreSQL, MongoDB, Redis | 3306, 5432, 27017, 6379 |
+| **Accès distant** | SSH, Telnet, RDP, VNC | 22, 23, 3389, 5900 |
+| **Transfert de fichiers** | FTP, TFTP | 21, 20, 69 |
+| **Cloud** | Docker, Kubernetes | 2375, 2376, 8000 |
+| **IoT** | MQTT, MQTTS, SNMP | 1883, 8883, 161, 162 |
+| **VoIP** | SIP, SIPS, RTP, RTCP | 5060, 5061, 16384, 16385 |
+| **Jeux** | Minecraft, Steam | 25565, 27000 |
+| **Autres** | NTP, DHCP, NetBIOS, SMB | 123, 67, 68, 137-139, 445 |
 
-2. **Protocoles UDP/ICMP**:
-   - Réponses DNS, DHCP, NTP
-   - Réponses ICMP (Echo Reply)
+### 🌍 Classification par Écosystème
 
-3. **Ports serveurs**:
-   - Trafic destiné aux ports serveurs courants (80, 443, 53, etc.)
+Détection automatique des écosystèmes basés sur les User-Agents et les ports :
 
-### Statistiques générées
+- **Android** (appareils mobiles Android)
+- **iOS** (iPhone, iPad, iPod)
+- **Windows** (Windows, Win64, Win32)
+- **macOS** (Macintosh, Mac OS X)
+- **Linux** (Linux, Ubuntu, Debian)
+- **Web** (navigateurs : Chrome, Firefox, Safari, Edge, Opera)
+- **IoT** (ESP8266, ESP32, Raspberry Pi, Arduino)
+- **Bot** (Googlebot, Bingbot, Slurp, Spider)
+- **API** (clients Python, Java, Go, curl)
+- **Mobile-Messaging** (XMPP, etc.)
+- **VoIP** (SIP, RTP)
 
-- **Générales**: Nombre total de paquets, durée, débit
-- **Par protocole**: TCP, UDP, ICMP, autres
-- **Par adresse**: Top sources et destinations
-- **Par port**: Ports les plus ciblés
-- **Conversations**: Flux entre paires source:port -> destination:port
-- **HTTP**: Endpoints les plus fréquents
-- **DNS**: Domaines les plus interrogés
-- **Sécurité**: Détection de patterns suspects
+### 🔍 Extraction de Données
 
-### Détection de patterns suspects
+Avec l'option `--deep`, le système extrait automatiquement :
 
-Le système détecte automatiquement :
-- Port scanning (beaucoup de ports différents ciblés)
-- Connexions massives depuis une seule IP
-- Trafic ICMP excessif (ping flood)
-- Trafic sur des ports suspects (SSH, Telnet, etc.)
-- SYN flood (beaucoup de paquets SYN sans ACK)
+#### 1. **Identifiants Personnels**
+- 📧 **Emails** : `user@example.com`
+- 📱 **Numéros de téléphone** : `+33123456789`, `0123456789`
+- 🌐 **URLs** : `https://example.com/api`
 
-## 📈 Exemple de sortie
+#### 2. **Identifiants Techniques**
+- 🔑 **UUIDs** : `550e8400-e29b-41d4-a716-446655440000`
+- 🎫 **Session IDs** : `session=abc123...`, `sid=xyz789...`
+- 📱 **Device IDs** : `device_id=ABC123`, `imei=123456789012345`
+- 👤 **User IDs** : `user_id=12345`, `uid=john_doe`
 
+#### 3. **Sécurité et Authentification**
+- 🔐 **API Keys** : `api_key=sk_live_abc123...`
+- 🛡️ **JWT Tokens** : `eyJhbGciOiJIUzI1NiIs...`
+- 🔑 **Credentials** : `username:admin`, `password:secret123`
+- 🍪 **Cookies** : `sessionid=abc123; user_token=xyz`
+
+#### 4. **Données Structurées**
+- 📦 **JSON Objects** : `{"key": "value"}`
+- 🔤 **Base64 Strings** : `dGVzdA==`
+- 🌐 **IP Addresses** : `192.168.1.1`
+
+### 📈 Statistiques Complètes
+
+- **Paquets totaux, entrants, sortants**
+- **Répartition par protocole** (TCP, UDP, ICMP)
+- **Top adresses sources et destinations**
+- **Top ports et applications**
+- **Conversations réseau** (flux entre IP:port)
+- **User-Agents** (navigateurs, applications)
+- **Domaines DNS** les plus interrogés
+- **Endpoints HTTP** les plus fréquents
+- **Statistiques de taille des paquets**
+
+### 🚨 Analyse de Sécurité
+
+Détection automatique de :
+
+- **Port Scanning** : Beaucoup de ports différents ciblés
+- **Connexions massives** : Beaucoup de connexions depuis une seule IP
+- **Ping Flood** : Trafic ICMP excessif
+- **Ports suspects** : Trafic sur SSH, Telnet, RDP, etc.
+- **SYN Flood** : Beaucoup de paquets SYN sans ACK
+- **Credentials en clair** : Détection de mots de passe dans le payload
+- **API Keys exposées** : Détection de clés API dans le trafic
+- **JWT Tokens** : Détection de tokens JWT
+
+## 📄 Formats de Sortie
+
+### 1. Rapport Texte (`.txt`)
+
+**Contenu :**
+- Résumé de l'analyse
+- Statistiques détaillées
+- Applications détectées
+- Écosystèmes identifiés
+- Données extraites (si `--deep`)
+- Analyse de sécurité
+
+**Exemple :**
 ```
 ======================================================================
-RÉSUMÉ DE L'ANALYSE PCAP
+RAPPORT D'ANALYSE PCAP - DÉTAILLÉ
 ======================================================================
-Fichier: capture.pcap
+
+Fichier: Brutes/capture1.pcap
 Durée: 60.00 secondes
 Début: 2024-01-15 10:30:00
 Fin: 2024-01-15 10:31:00
@@ -145,112 +214,166 @@ Protocoles:
   UDP: 300 (19.5%)
   ICMP: 42 (2.7%)
 
-Top 10 adresses sources:
-  192.168.1.1: 450 (29.2%)
-  10.0.0.1: 320 (20.7%)
-  ...
+Applications détectées:
+  HTTPS: 750
+  HTTP: 450
+  DNS: 300
+  SSH: 42
 
-Top 10 ports destinations:
-  80: 450
-  443: 320
-  53: 120
-  ...
+Écosystèmes détectés:
+  Web: 1200
+  Android: 300
+  iOS: 150
 
 ======================================================================
-ANALYSE DU TRAFIC ENTRANT
+DONNÉES EXTRAITES
 ======================================================================
-Nombre de paquets entrants: 892
 
-Protocoles entrants:
-  TCP: 750 (84.1%)
-  UDP: 120 (13.5%)
-  ICMP: 22 (2.4%)
-
-Top 10 sources de trafic entrant:
-  192.168.1.1: 320 (35.9%)
-  10.0.0.1: 250 (28.0%)
+EMAILS (5):
+  1. user1@example.com
+  2. user2@gmail.com
   ...
 
-Analyse de sécurité:
-  Aucun pattern suspect détecté
+PHONE NUMBERS (3):
+  1. +33123456789
+  2. 0123456789
+  ...
+
+USER IDS (10):
+  1. user_id=12345
+  2. uid=john_doe
+  ...
 ```
 
-## 🎯 Cas d'usage
+### 2. JSON (`.json`)
 
-### 1. Surveillance réseau
-```bash
-# Capture continue avec sauvegarde automatique
-while true; do
-    python scripts/capture_incoming.py eth0 300 capture_$(date +%Y%m%d_%H%M%S).pcap
-    sleep 60
-done
-```
+**Contenu :** Toutes les données au format structuré pour intégration avec d'autres outils.
 
-### 2. Analyse de sécurité
-```bash
-# Analyser un fichier suspect
-python scripts/analyze_pcap.py suspicious.pcap --incoming-only
-
-# Extraire uniquement le trafic entrant pour analyse approfondie
-python scripts/utils.py filter-incoming suspicious.pcap incoming_only.pcap
-python scripts/analyze_pcap.py incoming_only.pcap
-```
-
-### 3. Monitoring de services
-```bash
-# Capturer le trafic vers un port spécifique (ex: 80)
-# Puis filtrer et analyser
-python scripts/capture_incoming.py eth0 60 web_traffic.pcap
-python scripts/analyze_pcap.py web_traffic.pcap --incoming-only
-```
-
-## 📝 Format des rapports
-
-### Rapport texte
-Contient toutes les statistiques au format lisible, idéal pour un rapport rapide.
-
-### JSON
-Contient toutes les données brutes au format structuré, idéal pour :
-- Intégration avec d'autres outils
-- Visualisation avec des outils comme Grafana
-- Analyse automatisée
-
-Exemple de structure JSON :
+**Exemple :**
 ```json
 {
-  "filename": "capture.pcap",
+  "filename": "Brutes/capture1.pcap",
   "start_time": 1705315800.0,
   "end_time": 1705315860.0,
   "duration": 60.0,
   "stats": {
     "total_packets": 1542,
     "incoming_packets": 892,
-    "protocols": {
-      "TCP": 1200,
-      "UDP": 300,
-      "ICMP": 42
+    "applications": {
+      "HTTPS": 750,
+      "HTTP": 450,
+      "DNS": 300
     },
-    "sources": {
-      "192.168.1.1": 450,
-      "10.0.0.1": 320
-    },
-    "dest_ports": {
-      "80": 450,
-      "443": 320
+    "ecosystems": {
+      "Web": 1200,
+      "Android": 300
     }
+  },
+  "extracted_data": {
+    "emails": ["user1@example.com", "user2@gmail.com"],
+    "phone_numbers": ["+33123456789", "0123456789"],
+    "user_ids": ["user_id=12345", "uid=john_doe"],
+    "credentials": ["username:admin", "password:secret123"],
+    "api_keys": ["api_key=sk_live_abc123"],
+    "jwt_tokens": ["eyJhbGciOiJIUzI1NiIs..."]
   }
 }
 ```
 
+## 🎯 Cas d'Usage Pratiques
+
+### 1. Analyse de routine
+
+```bash
+# Analyser tous les nouveaux fichiers PCAP
+python LANCER.py
+
+# Vérifier les résultats dans Sortie/
+ls -la Sortie/
+```
+
+### 2. Investigation de sécurité
+
+```bash
+# Analyse approfondie avec extraction de toutes les données
+python LANCER.py --deep --all-formats
+
+# Rechercher des informations sensibles
+cat Sortie/*rapport*.txt | grep -i "credential\|password\|api_key\|jwt"
+```
+
+### 3. Monitoring d'applications spécifiques
+
+```bash
+# Analyser uniquement le trafic vers une application
+python LANCER.py Brutes/api_traffic.pcap --deep
+
+# Vérifier les endpoints HTTP
+cat Sortie/*rapport*.txt | grep -A 10 "Endpoints HTTP"
+```
+
+### 4. Analyse par écosystème
+
+```bash
+# Analyser et filtrer par écosystème
+python LANCER.py --deep
+
+# Extraire les informations sur les écosystèmes
+cat Sortie/*rapport*.txt | grep -A 20 "Écosystèmes détectés"
+```
+
+### 5. Automatisation
+
+```bash
+# Script pour analyser automatiquement les nouveaux fichiers
+#!/bin/bash
+while true; do
+    python LANCER.py --deep --all-formats
+    sleep 3600  # Attendre 1 heure
+    clear
+    echo "Nouvelle analyse démarrée à $(date)"
+done
+```
+
 ## 🔧 Personnalisation
 
-### Modifier la détection de trafic entrant
+### 1. Ajouter de nouvelles applications
 
-Dans `capture_incoming.py` et `analyze_pcap.py`, la méthode `is_incoming()` peut être modifiée pour adapter la détection à votre environnement spécifique.
+Modifiez le dictionnaire `APPLICATION_PORTS` dans `scripts/analyze_pcap.py` :
 
-### Ajouter de nouveaux protocoles
+```python
+APPLICATION_PORTS = {
+    # ... existant ...
+    8081: 'My-Custom-App',
+    9000: 'Portainer',
+    # Ajoutez vos applications ici
+}
+```
 
-Pour analyser d'autres protocoles (ex: DNS, HTTP), ajoutez les imports et la logique d'analyse correspondante.
+### 2. Ajouter de nouveaux patterns d'extraction
+
+Modifiez le dictionnaire `PATTERNS` dans `scripts/analyze_pcap.py` :
+
+```python
+PATTERNS = {
+    # ... existant ...
+    'custom_ids': re.compile(r'custom[_-]?id[=:"]?([a-zA-Z0-9_-]{8,})'),
+    'serial_numbers': re.compile(r'(serial|sn)[=:"]?([a-zA-Z0-9-]{10,})'),
+    # Ajoutez vos patterns ici
+}
+```
+
+### 3. Ajouter de nouveaux écosystèmes
+
+Modifiez le dictionnaire `ECOSYSTEM_PATTERNS` dans `scripts/analyze_pcap.py` :
+
+```python
+ECOSYSTEM_PATTERNS = {
+    # ... existant ...
+    'Custom-App': [r'MyApp/', r'Custom-Client'],
+    # Ajoutez vos écosystèmes ici
+}
+```
 
 ## 📚 Documentation Scapy
 
@@ -260,15 +383,28 @@ Pour analyser d'autres protocoles (ex: DNS, HTTP), ajoutez les imports et la log
 ## 🤝 Contribution
 
 1. Fork le projet
-2. Crée une branche pour votre fonctionnalité (`git checkout -b feature/nouvelle-fonctionnalité`)
-3. Commit vos changements (`git commit -m 'Ajout de nouvelle fonctionnalité'`)
-4. Push vers la branche (`git push origin feature/nouvelle-fonctionnalité`)
+2. Crée une branche pour votre fonctionnalité
+3. Commit vos changements
+4. Push vers la branche
 5. Ouvrez une Pull Request
 
 ## 📄 Licence
 
-Ce projet est sous licence MIT. Voir le fichier LICENCE pour plus de détails.
+Ce projet est sous licence MIT.
 
 ---
 
-**Note**: Ce projet est conçu pour fonctionner avec Python 3.9.14 et Scapy uniquement, comme demandé. Aucune autre dépendance n'est requise.
+## 🎉 Résumé des Avantages
+
+✅ **100% compatible Python 3.9.14**  
+✅ **Scapy uniquement** (aucune autre dépendance)  
+✅ **Pas besoin d'ouvrir Wireshark**  
+✅ **Extraction automatique de toutes les informations**  
+✅ **Identification des applications et écosystèmes**  
+✅ **Détection des données sensibles**  
+✅ **Analyse de sécurité intégrée**  
+✅ **Rapports détaillés en texte et JSON**  
+✅ **Traitement par lots** (tous les fichiers dans Brutes/)  
+✅ **Personnalisable** (applications, patterns, écosystèmes)  
+
+**Ce projet vous permet d'analyser vos fichiers PCAP de manière exhaustive sans avoir à utiliser Wireshark manuellement !** 🚀

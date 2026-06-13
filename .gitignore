@@ -38,12 +38,18 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Data and results
+# Dossiers de travail
+Brutes/
+Sortie/
+
+# Fichiers de sortie
 *.pcap
-data/
-results/
+*.pcapng
+*.cap
 *.json
 *.txt
-
-# Logs
 *.log
+
+# Fichiers temporaires
+temp/
+tmp/
