@@ -7,7 +7,8 @@ présents dans le dossier 'Brutes/' et sauvegarde les résultats dans 'Sortie/'
 Les erreurs sont enregistrées dans 'Error/error.log'
 
 Usage:
-    python LANCER.py                    # Analyse tous les fichiers PCAP
+    python LANCER.py                    # Demande à l'utilisateur quel fichier traiter
+    python LANCER.py --all             # Traite tous les fichiers PCAP
     python LANCER.py fichier.pcap       # Analyse un fichier spécifique
     python LANCER.py --deep             # Analyse approfondie avec extraction de données
     python LANCER.py --json             # Sauvegarde au format JSON
@@ -109,6 +110,45 @@ def get_output_filename(input_file, suffix="", extension=".txt"):
     return os.path.join(SORTIE_DIR, output_filename)
 
 
+def display_file_list(pcap_files):
+    """Affiche la liste des fichiers PCAP avec numérotation"""
+    print(f"\n{'='*70}")
+    print("FICHIERS PCAP DISPONIBLES DANS 'Brutes/'")
+    print(f"{'='*70}")
+    
+    for i, pcap_file in enumerate(pcap_files, 1):
+        filename = os.path.basename(pcap_file)
+        size = os.path.getsize(pcap_file)
+        size_mb = size / (1024 * 1024)
+        print(f"  {i}. {filename} ({size_mb:.2f} Mo)")
+    
+    print(f"\n  0. Traiter TOUS les fichiers")
+    print(f"  q. Quitter")
+    print(f"{'='*70}")
+
+
+def get_user_choice(pcap_files):
+    """Demande à l'utilisateur de choisir un fichier ou tous les fichiers"""
+    while True:
+        try:
+            choice = input("\nVotre choix (numéro, 0 pour tous, q pour quitter) : ").strip().lower()
+            
+            if choice == 'q':
+                return None
+            elif choice == '0':
+                return pcap_files  # Tous les fichiers
+            elif choice.isdigit():
+                index = int(choice) - 1
+                if 0 <= index < len(pcap_files):
+                    return [pcap_files[index]]  # Un seul fichier
+                else:
+                    print(f"Numéro invalide. Veuillez choisir entre 1 et {len(pcap_files)}")
+            else:
+                print("Choix invalide. Veuillez entrer un numéro, 0, ou q.")
+        except (ValueError, IndexError):
+            print("Entrée invalide. Veuillez réessayer.")
+
+
 def run_analysis(input_file, deep_analysis=False, output_format="txt", logger=None):
     """Exécute l'analyse sur un fichier PCAP"""
     print(f"\n{'='*70}")
@@ -172,6 +212,53 @@ def run_analysis(input_file, deep_analysis=False, output_format="txt", logger=No
         return False
 
 
+def analyze_files(file_list, deep_analysis=False, output_format="txt", logger=None):
+    """Analyse une liste de fichiers PCAP"""
+    if not file_list:
+        print("Aucun fichier à analyser")
+        return False
+    
+    success_count = 0
+    for pcap_file in file_list:
+        if run_analysis(pcap_file, deep_analysis, output_format, logger):
+            success_count += 1
+    
+    print(f"\n{'='*70}")
+    print(f"Analyse terminée: {success_count}/{len(file_list)} fichiers traités avec succès")
+    print(f"{'='*70}")
+    
+    # Enregistrer un résumé dans le log
+    if logger:
+        logger.info(f"Analyse terminée: {success_count}/{len(file_list)} fichiers traités")
+    
+    return success_count == len(file_list)
+
+
+def interactive_mode(deep_analysis=False, output_format="txt", logger=None):
+    """Mode interactif : demande à l'utilisateur de choisir"""
+    pcap_files = get_pcap_files(BRUTES_DIR)
+    
+    if not pcap_files:
+        error_msg = f"Aucun fichier PCAP trouvé dans {BRUTES_DIR}/"
+        print(error_msg)
+        if logger:
+            log_error(logger, error_msg)
+        return False
+    
+    # Afficher la liste des fichiers
+    display_file_list(pcap_files)
+    
+    # Demander le choix de l'utilisateur
+    selected_files = get_user_choice(pcap_files)
+    
+    if selected_files is None:
+        print("Analyse annulée par l'utilisateur")
+        return True
+    
+    # Analyser les fichiers sélectionnés
+    return analyze_files(selected_files, deep_analysis, output_format, logger)
+
+
 def analyze_single_file(filepath, deep_analysis=False, output_format="txt", logger=None):
     """Analyse un fichier PCAP unique"""
     if not os.path.exists(filepath):
@@ -197,20 +284,7 @@ def analyze_all_files(deep_analysis=False, output_format="txt", logger=None):
     
     print(f"Trouvé {len(pcap_files)} fichier(s) PCAP dans {BRUTES_DIR}/")
     
-    success_count = 0
-    for pcap_file in pcap_files:
-        if run_analysis(pcap_file, deep_analysis, output_format, logger):
-            success_count += 1
-    
-    print(f"\n{'='*70}")
-    print(f"Analyse terminée: {success_count}/{len(pcap_files)} fichiers traités avec succès")
-    print(f"{'='*70}")
-    
-    # Enregistrer un résumé dans le log
-    if logger:
-        logger.info(f"Analyse terminée: {success_count}/{len(pcap_files)} fichiers traités")
-    
-    return success_count == len(pcap_files)
+    return analyze_files(pcap_files, deep_analysis, output_format, logger)
 
 
 def show_help():
@@ -229,44 +303,49 @@ DOSSIERS:
   Error/    - Contiendra les logs d'erreurs (error.log)
 
 USAGE:
-  1. Analyse de tous les fichiers PCAP dans Brutes/:
+  1. Mode interactif (par défaut) :
      python LANCER.py
+     -> Demande à l'utilisateur de choisir un fichier ou tous
 
-  2. Analyse d'un fichier spécifique:
+  2. Analyse de tous les fichiers PCAP dans Brutes/:
+     python LANCER.py --all
+
+  3. Analyse d'un fichier spécifique:
      python LANCER.py mon_fichier.pcap
 
-  3. Analyse approfondie (extraction de données du payload):
+  4. Analyse approfondie (extraction de données du payload):
      python LANCER.py --deep
-     python LANCER.py mon_fichier.pcap --deep
+     python LANCER.py --all --deep
 
-  4. Sauvegarde au format JSON:
+  5. Sauvegarde au format JSON:
      python LANCER.py --json
-     python LANCER.py mon_fichier.pcap --json
+     python LANCER.py --all --json
 
-  5. Sauvegarde dans tous les formats (texte + JSON):
+  6. Sauvegarde dans tous les formats (texte + JSON):
      python LANCER.py --all-formats
 
-  6. Combinaison d'options:
-     python LANCER.py --deep --all-formats
+  7. Combinaison d'options:
+     python LANCER.py --all --deep --all-formats
 
 OPTIONS:
+  --all           Traite tous les fichiers PCAP (sans demander)
   --deep          Active l'analyse approfondie (extraction de données)
   --json          Sauvegarde les résultats au format JSON
   --all-formats   Sauvegarde dans tous les formats disponibles
   --help, -h      Affiche cette aide
 
 EXEMPLES COMPLETS:
-  # Analyse basique de tous les fichiers
+  # Mode interactif (choix utilisateur)
   python LANCER.py
 
-  # Analyse approfondie avec tous les formats
-  python LANCER.py --deep --all-formats
+  # Traiter tous les fichiers
+  python LANCER.py --all
 
-  # Analyse d'un fichier spécifique avec extraction de données
-  python LANCER.py mon_capture.pcap --deep
+  # Analyse approfondie de tous les fichiers
+  python LANCER.py --all --deep --all-formats
 
-  # Analyse avec sauvegarde JSON uniquement
-  python LANCER.py --json
+  # Analyse d'un fichier spécifique
+  python LANCER.py Brutes/capture1.pcap --deep
 
   # Vérifier les erreurs
   cat Error/error.log
@@ -301,6 +380,12 @@ def main():
         'file',
         nargs='?',
         help='Fichier PCAP spécifique à analyser (optionnel)'
+    )
+    
+    parser.add_argument(
+        '--all',
+        action='store_true',
+        help='Traite tous les fichiers PCAP sans demander'
     )
     
     parser.add_argument(
@@ -350,7 +435,7 @@ def main():
         output_format = "txt"
     
     # Enregistrer le début de l'analyse
-    logger.info(f"Début de l'analyse - Options: deep={args.deep}, format={output_format}")
+    logger.info(f"Début de l'analyse - Options: all={args.all}, deep={args.deep}, format={output_format}")
     
     # Analyser
     if args.file:
@@ -358,10 +443,15 @@ def main():
         if not analyze_single_file(args.file, args.deep, output_format, logger):
             logger.error(f"Échec de l'analyse du fichier: {args.file}")
             return 1
-    else:
+    elif args.all:
         # Analyse de tous les fichiers dans Brutes/
         if not analyze_all_files(args.deep, output_format, logger):
             logger.error("Échec de l'analyse par lots")
+            return 1
+    else:
+        # Mode interactif : demander à l'utilisateur
+        if not interactive_mode(args.deep, output_format, logger):
+            logger.error("Échec de l'analyse interactive")
             return 1
     
     # Enregistrer la fin de l'analyse

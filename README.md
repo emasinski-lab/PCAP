@@ -61,12 +61,36 @@ PCAP/
 
 ### 2. Lancement de l'analyse
 
-#### Analyse basique (rapide)
+#### Mode interactif (par défaut)
 ```bash
-# Analyser tous les fichiers dans Brutes/
+# Lance le mode interactif : affiche la liste des fichiers et demande à l'utilisateur de choisir
 python LANCER.py
 
-# Analyser un fichier spécifique
+Exemple de sortie:
+```
+======================================================================
+FICHIERS PCAP DISPONIBLES DANS 'Brutes/'
+======================================================================
+  1. capture1.pcap (12.50 Mo)
+  2. capture2.pcap (8.30 Mo)
+  3. test_multiapps.pcap (5.20 Mo)
+
+  0. Traiter TOUS les fichiers
+  q. Quitter
+======================================================================
+
+Votre choix (numéro, 0 pour tous, q pour quitter) :
+```
+
+#### Traiter tous les fichiers
+```bash
+# Traite tous les fichiers sans demander confirmation
+python LANCER.py --all
+```
+
+#### Analyser un fichier spécifique
+```bash
+# Analyse un fichier spécifique par son nom
 python LANCER.py Brutes/capture1.pcap
 ```
 
@@ -74,6 +98,7 @@ python LANCER.py Brutes/capture1.pcap
 ```bash
 # Avec extraction de toutes les données (emails, téléphones, IDs, etc.)
 python LANCER.py --deep
+python LANCER.py --all --deep
 
 # Sur un fichier spécifique avec extraction
 python LANCER.py Brutes/capture1.pcap --deep
@@ -83,12 +108,15 @@ python LANCER.py Brutes/capture1.pcap --deep
 ```bash
 # Sauvegarde au format JSON (pour intégration avec d'autres outils)
 python LANCER.py --json
+python LANCER.py --all --json
 
 # Sauvegarde dans tous les formats (texte + JSON)
 python LANCER.py --all-formats
+python LANCER.py --all --all-formats
 
 # Combinaison : analyse approfondie + tous les formats
 python LANCER.py --deep --all-formats
+python LANCER.py --all --deep --all-formats
 ```
 
 ### 3. Afficher l'aide
