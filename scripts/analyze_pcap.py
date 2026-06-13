@@ -620,8 +620,18 @@ class PCAPAnalyzer:
             print(f"Nombre de paquets: {len(self.packets)}")
             return True
         except Exception as e:
-            print(f"Erreur lors du chargement du fichier: {e}")
-            return False
+            # Essayer avec conf.use_pcap = False si libpcap n'est pas disponible
+            try:
+                from scapy.config import conf
+                conf.use_pcap = False
+                self.packets = rdpcap(filename)
+                self.pcap_file = filename
+                print(f"Fichier chargé (mode sans libpcap): {filename}")
+                print(f"Nombre de paquets: {len(self.packets)}")
+                return True
+            except Exception as e2:
+                print(f"Erreur lors du chargement du fichier: {e2}")
+                return False
     
     def analyze(self):
         """Analyse tous les paquets"""
@@ -634,7 +644,17 @@ class PCAPAnalyzer:
             print("Mode d'analyse approfondie activé")
         
         # Trouver les timestamps min et max
-        timestamps = [p.time for p in self.packets if p.time]
+        timestamps = []
+        for p in self.packets:
+            if hasattr(p, 'time') and p.time is not None:
+                try:
+                    # Convertir en float si c'est un EDecimal ou autre type
+                    ts = float(p.time)
+                    timestamps.append(ts)
+                except (TypeError, ValueError):
+                    # Ignorer les timestamps invalides
+                    continue
+        
         if timestamps:
             self.start_time = min(timestamps)
             self.end_time = max(timestamps)
@@ -663,8 +683,14 @@ class PCAPAnalyzer:
             print(f"Fin: {datetime.fromtimestamp(self.end_time).strftime('%Y-%m-%d %H:%M:%S')}")
         
         print(f"\nPaquets totaux: {self.stats['total_packets']}")
-        print(f"Paquets entrants: {self.stats['incoming_packets']} ({self.stats['incoming_packets']/self.stats['total_packets']*100:.1f}%)")
-        print(f"Paquets sortants: {self.stats['outgoing_packets']} ({self.stats['outgoing_packets']/self.stats['total_packets']*100:.1f}%)")
+        if self.stats['total_packets'] > 0:
+            incoming_pct = (self.stats['incoming_packets'] / self.stats['total_packets'] * 100) if self.stats['total_packets'] > 0 else 0
+            outgoing_pct = (self.stats['outgoing_packets'] / self.stats['total_packets'] * 100) if self.stats['total_packets'] > 0 else 0
+            print(f"Paquets entrants: {self.stats['incoming_packets']} ({incoming_pct:.1f}%)")
+            print(f"Paquets sortants: {self.stats['outgoing_packets']} ({outgoing_pct:.1f}%)")
+        else:
+            print(f"Paquets entrants: {self.stats['incoming_packets']}")
+            print(f"Paquets sortants: {self.stats['outgoing_packets']}")
         
         print(f"\nProtocoles:")
         for proto, count in sorted(self.stats['protocols'].items(), key=lambda x: x[1], reverse=True):
@@ -890,10 +916,13 @@ class PCAPAnalyzer:
                 
                 f.write(f"Fichier: {self.pcap_file}\n")
                 if self.start_time and self.end_time:
-                    duration = self.end_time - self.start_time
-                    f.write(f"Durée: {duration:.2f} secondes\n")
-                    f.write(f"Début: {datetime.fromtimestamp(self.start_time).strftime('%Y-%m-%d %H:%M:%S')}\n")
-                    f.write(f"Fin: {datetime.fromtimestamp(self.end_time).strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    try:
+                        duration = self.end_time - self.start_time
+                        f.write(f"Durée: {duration:.2f} secondes\n")
+                        f.write(f"Début: {datetime.fromtimestamp(float(self.start_time)).strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        f.write(f"Fin: {datetime.fromtimestamp(float(self.end_time)).strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    except (TypeError, ValueError):
+                        f.write(f"Durée: Inconnue\n")
                 
                 f.write(f"\nPaquets totaux: {self.stats['total_packets']}\n")
                 f.write(f"Paquets entrants: {self.stats['incoming_packets']}\n")
@@ -975,11 +1004,16 @@ class PCAPAnalyzer:
             for key, value in self.extracted_data.items():
                 extracted_dict[key] = list(value)
             
+            try:
+                duration = (self.end_time - self.start_time) if self.start_time and self.end_time else None
+            except (TypeError, ValueError):
+                duration = None
+            
             data = {
                 'filename': self.pcap_file,
-                'start_time': self.start_time,
-                'end_time': self.end_time,
-                'duration': (self.end_time - self.start_time) if self.start_time and self.end_time else None,
+                'start_time': float(self.start_time) if self.start_time else None,
+                'end_time': float(self.end_time) if self.end_time else None,
+                'duration': duration,
                 'stats': stats_dict,
                 'extracted_data': extracted_dict,
                 'deep_analysis': self.deep_analysis
