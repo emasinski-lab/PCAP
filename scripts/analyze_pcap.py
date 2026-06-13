@@ -942,6 +942,10 @@ class PCAPAnalyzer:
             '\u05df': 'n', '\u05e0': 'n', '\u05e1': 's', '\u05e2': 'a', '\u05e3': 'f',
             '\u05e4': 'p', '\u05e5': 'p', '\u05e6': 'ts', '\u05e7': 'k', '\u05e8': 'r',
             '\u05e9': 'sh', '\u05ea': 't',
+            # Maqaf hébreu (tiret)
+            '\u05fb': '-',
+            # Autres caractères hébreux
+            '\u05f3': '/', '\u05f4': '/',
             
             # Arabe (simplifié)
             '\u0627': 'a', '\u0628': 'b', '\u062a': 't', '\u062b': 'th', '\u062c': 'j',
@@ -990,78 +994,79 @@ class PCAPAnalyzer:
     def save_report(self, filename):
         """Sauvegarde un rapport d'analyse dans un fichier"""
         try:
-            with open(filename, 'w', encoding='utf-8', errors='replace') as f:
-                f.write("="*70 + "\n")
-                f.write("RAPPORT D'ANALYSE PCAP - DETAILLE\n")
-                f.write("="*70 + "\n\n")
+            # Forcer l'encodage UTF-8 et ignorer les erreurs
+            # Appliquer clean_string à TOUT ce qui est écrit
+            with open(filename, 'w', encoding='utf-8', errors='ignore') as f:
+                f.write(self.clean_string("="*70 + "\n"))
+                f.write(self.clean_string("RAPPORT D'ANALYSE PCAP - DETAILLE\n"))
+                f.write(self.clean_string("="*70 + "\n\n"))
                 
-                f.write(f"Fichier: {self.clean_string(self.pcap_file)}\n")
                 if self.start_time and self.end_time:
                     try:
                         duration = self.end_time - self.start_time
-                        f.write(f"Duree: {duration:.2f} secondes\n")
-                        f.write(f"Debut: {datetime.fromtimestamp(float(self.start_time)).strftime('%Y-%m-%d %H:%M:%S')}\n")
-                        f.write(f"Fin: {datetime.fromtimestamp(float(self.end_time)).strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        f.write(self.clean_string(f"Duree: {duration:.2f} secondes\n"))
+                        f.write(self.clean_string(f"Debut: {datetime.fromtimestamp(float(self.start_time)).strftime('%Y-%m-%d %H:%M:%S')}\n"))
+                        f.write(self.clean_string(f"Fin: {datetime.fromtimestamp(float(self.end_time)).strftime('%Y-%m-%d %H:%M:%S')}\n"))
                     except (TypeError, ValueError):
-                        f.write(f"Duree: Inconnue\n")
+                        f.write(self.clean_string("Duree: Inconnue\n"))
                 
-                f.write(f"\nPaquets totaux: {self.stats['total_packets']}\n")
-                f.write(f"Paquets entrants: {self.stats['incoming_packets']}\n")
-                f.write(f"Paquets sortants: {self.stats['outgoing_packets']}\n")
+                f.write(self.clean_string(f"\nPaquets totaux: {self.stats['total_packets']}\n"))
+                f.write(self.clean_string(f"Paquets entrants: {self.stats['incoming_packets']}\n"))
+                f.write(self.clean_string(f"Paquets sortants: {self.stats['outgoing_packets']}\n"))
                 
-                f.write(f"\nProtocoles:\n")
+                f.write(self.clean_string(f"\nProtocoles:\n"))
                 for proto, count in sorted(self.stats['protocols'].items(), key=lambda x: x[1], reverse=True):
-                    f.write(f"  {self.clean_string(proto)}: {count}\n")
+                    f.write(self.clean_string(f"  {proto}: {count}\n"))
                 
-                f.write(f"\nApplications:\n")
+                f.write(self.clean_string(f"\nApplications:\n"))
                 for app, count in sorted(self.stats['applications'].items(), key=lambda x: x[1], reverse=True):
-                    f.write(f"  {self.clean_string(app)}: {count}\n")
+                    f.write(self.clean_string(f"  {app}: {count}\n"))
                 
-                f.write(f"\nEcosystemes:\n")
+                f.write(self.clean_string(f"\nEcosystemes:\n"))
                 for eco, count in sorted(self.stats['ecosystems'].items(), key=lambda x: x[1], reverse=True):
-                    f.write(f"  {self.clean_string(eco)}: {count}\n")
+                    f.write(self.clean_string(f"  {eco}: {count}\n"))
                 
-                f.write(f"\nTop 10 adresses sources:\n")
+                f.write(self.clean_string(f"\nTop 10 adresses sources:\n"))
                 for ip, count in sorted(self.stats['sources'].items(), key=lambda x: x[1], reverse=True)[:10]:
-                    f.write(f"  {self.clean_string(ip)}: {count}\n")
+                    f.write(self.clean_string(f"  {ip}: {count}\n"))
                 
-                f.write(f"\nTop 10 adresses destinations:\n")
+                f.write(self.clean_string(f"\nTop 10 adresses destinations:\n"))
                 for ip, count in sorted(self.stats['destinations'].items(), key=lambda x: x[1], reverse=True)[:10]:
-                    f.write(f"  {self.clean_string(ip)}: {count}\n")
+                    f.write(self.clean_string(f"  {ip}: {count}\n"))
                 
-                f.write(f"\nTop 10 ports destinations:\n")
+                f.write(self.clean_string(f"\nTop 10 ports destinations:\n"))
                 for port, count in sorted(self.stats['dest_ports'].items(), key=lambda x: x[1], reverse=True)[:10]:
                     app_name = APPLICATION_PORTS.get(port, 'UNKNOWN')
-                    f.write(f"  {port} ({self.clean_string(app_name)}): {count}\n")
+                    f.write(self.clean_string(f"  {port} ({app_name}): {count}\n"))
                 
                 if self.stats['http_endpoints']:
-                    f.write(f"\nEndpoints HTTP:\n")
+                    f.write(self.clean_string(f"\nEndpoints HTTP:\n"))
                     for endpoint, count in sorted(self.stats['http_endpoints'].items(), key=lambda x: x[1], reverse=True)[:10]:
-                        f.write(f"  {self.clean_string(endpoint)}: {count}\n")
+                        f.write(self.clean_string(f"  {endpoint}: {count}\n"))
                 
                 if self.stats['dns_domains']:
-                    f.write(f"\nDomaines DNS:\n")
+                    f.write(self.clean_string(f"\nDomaines DNS:\n"))
                     for domain, count in sorted(self.stats['dns_domains'].items(), key=lambda x: x[1], reverse=True)[:10]:
-                        f.write(f"  {self.clean_string(domain)}: {count}\n")
+                        f.write(self.clean_string(f"  {domain}: {count}\n"))
                 
                 if self.stats['user_agents']:
-                    f.write(f"\nUser-Agents:\n")
+                    f.write(self.clean_string(f"\nUser-Agents:\n"))
                     for ua, count in sorted(self.stats['user_agents'].items(), key=lambda x: x[1], reverse=True)[:5]:
-                        f.write(f"  {self.clean_string(ua[:100])}: {count}\n")
+                        f.write(self.clean_string(f"  {ua[:100]}: {count}\n"))
                 
                 # Donnees extraites
                 if self.deep_analysis:
-                    f.write(f"\n" + "="*70 + "\n")
-                    f.write("DONNEES EXTRAITES\n")
-                    f.write("="*70 + "\n\n")
+                    f.write(self.clean_string(f"\n{'='*70}\n"))
+                    f.write(self.clean_string("DONNEES EXTRAITES\n"))
+                    f.write(self.clean_string(f"{'='*70}\n\n"))
                     
                     for data_type, data_set in self.extracted_data.items():
                         if data_set:
-                            f.write(f"\n{data_type.upper().replace('_', ' ')}:\n")
+                            f.write(self.clean_string(f"\n{data_type.upper().replace('_', ' ')}:\n"))
                             for item in sorted(data_set)[:20]:
-                                f.write(f"  - {self.clean_string(item)}\n")
+                                f.write(self.clean_string(f"  - {item}\n"))
                             if len(data_set) > 20:
-                                f.write(f"  ... et {len(data_set) - 20} de plus\n")
+                                f.write(self.clean_string(f"  ... et {len(data_set) - 20} de plus\n"))
             
             print(f"Rapport sauvegardé dans: {filename}")
             return True
