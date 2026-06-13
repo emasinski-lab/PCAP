@@ -19,8 +19,13 @@ import json
 import base64
 
 # Forcer l'encodage UTF-8 pour la sortie console (surtout sous Windows)
+# Désactiver colorama qui peut causer des problèmes d'encodage
+import os
+os.environ['COLORAMA'] = '0'  # Désactiver colorama
+
 if sys.platform == 'win32':
     import io
+    import sys
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
@@ -862,7 +867,7 @@ class PCAPAnalyzer:
         """Détecte les patterns suspects dans le trafic entrant"""
         suspicious_findings = []
         
-        # 1. Port scanning (beaucoup de connexions sur différents ports)
+        # 1. Port scanning (beaucoup de connexions sur differents ports)
         if len(self.stats['dest_ports']) > 20:
             unique_ports = len(self.stats['dest_ports'])
             if unique_ports > 50:
@@ -879,7 +884,7 @@ class PCAPAnalyzer:
         if self.stats['icmp_packets'] > 100:
             percentage = (self.stats['icmp_packets'] / self.stats['total_packets'] * 100) if self.stats['total_packets'] > 0 else 0
             if percentage > 10:
-                suspicious_findings.append(f"[ALERTE] Trafic ICMP eleve: {self.stats['icmp_packets']} paquets ({percentage:.1f}%)")
+                suspicious_findings.append(f"[ALERTE] Trafic ICMP eleve: {self.stats['icmp_packets']} paquets ({percentage:.1f} pct)")
         
         # 4. Trafic sur des ports suspects
         suspicious_ports = [22, 23, 21, 3389, 5900, 4444, 6667]
@@ -893,17 +898,17 @@ class PCAPAnalyzer:
             if syn_count > 100:
                 percentage = (syn_count / sum(self.stats['tcp_flags'].values()) * 100) if self.stats['tcp_flags'] else 0
                 if percentage > 30:
-                    suspicious_findings.append(f"[ALERTE] Beaucoup de paquets SYN: {syn_count} ({percentage:.1f}%)")
+                    suspicious_findings.append(f"[ALERTE] Beaucoup de paquets SYN: {syn_count} ({percentage:.1f} pct)")
         
-        # 6. Détection de credentials dans le trafic
+        # 6. Detection de credentials dans le trafic
         if self.deep_analysis and self.extracted_data['credentials']:
             suspicious_findings.append(f"[ALERTE] {len(self.extracted_data['credentials'])} credentials potentiels detectes dans le payload")
         
-        # 7. Détection d'API keys
+        # 7. Detection d'API keys
         if self.deep_analysis and self.extracted_data['api_keys']:
             suspicious_findings.append(f"[ALERTE] {len(self.extracted_data['api_keys'])} API keys potentielles detectees")
         
-        # 8. Détection de JWT tokens
+        # 8. Detection de JWT tokens
         if self.deep_analysis and self.extracted_data['jwt_tokens']:
             suspicious_findings.append(f"[ALERTE] {len(self.extracted_data['jwt_tokens'])} JWT tokens detectes")
         
