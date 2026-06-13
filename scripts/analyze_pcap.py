@@ -12,6 +12,7 @@ Usage:
 import sys
 import os
 import re
+import unicodedata
 from datetime import datetime
 from collections import defaultdict, Counter
 import argparse
@@ -918,23 +919,91 @@ class PCAPAnalyzer:
         else:
             print("  Aucun pattern suspect détecté")
     
+    def clean_string(self, text):
+        """
+        Translittère une chaîne de caractères pour convertir les caractères exotiques 
+        (hébreu, arabe, farsi, chinois, etc.) en leur équivalent ASCII le plus proche.
+        
+        Exemples:
+            "例子" -> "li ju" (chinois)
+            "سلام" -> "slam" (arabe)  
+            "فارسى" -> "farsy" (farsi)
+            "test\u05fb" -> "test" (hébreu)
+        """
+        if not isinstance(text, str):
+            text = str(text)
+        
+        # Dictionnaire de translittération pour les caractères courants
+        translit_map = {
+            # Hébreu
+            '\u05d0': 'a', '\u05d1': 'b', '\u05d2': 'g', '\u05d3': 'd', '\u05d4': 'h',
+            '\u05d5': 'v', '\u05d6': 'z', '\u05d7': 'h', '\u05d8': 't', '\u05d9': 'y',
+            '\u05da': 'k', '\u05db': 'kh', '\u05dc': 'l', '\u05dd': 'm', '\u05de': 'm',
+            '\u05df': 'n', '\u05e0': 'n', '\u05e1': 's', '\u05e2': 'a', '\u05e3': 'f',
+            '\u05e4': 'p', '\u05e5': 'p', '\u05e6': 'ts', '\u05e7': 'k', '\u05e8': 'r',
+            '\u05e9': 'sh', '\u05ea': 't',
+            
+            # Arabe (simplifié)
+            '\u0627': 'a', '\u0628': 'b', '\u062a': 't', '\u062b': 'th', '\u062c': 'j',
+            '\u062d': 'h', '\u062e': 'kh', '\u062f': 'd', '\u0630': 'th', '\u0631': 'r',
+            '\u0632': 'z', '\u0633': 's', '\u0634': 'sh', '\u0635': 's', '\u0636': 'd',
+            '\u0637': 't', '\u0638': 'z', '\u0639': 'e', '\u063a': 'gh', '\u0641': 'f',
+            '\u0642': 'q', '\u0643': 'k', '\u0644': 'l', '\u0645': 'm', '\u0646': 'n',
+            '\u0647': 'h', '\u0648': 'w', '\u0649': 'y',
+            
+            # Farsi/Persan (simplifié)
+            '\u067e': 'p', '\u067f': 'ch', '\u0680': 'zh', '\u06a9': 'g', '\u06af': 'g',
+            '\u06be': 'h', '\u06cc': 'y',
+            
+            # Chinois (pinyin simplifié pour les caractères courants)
+            '\u4e2d': 'zhong', '\u56fd': 'guo', '\u4e00': 'yi', '\u4e8c': 'er',
+            '\u4e09': 'san', '\u56db': 'si', '\u4e94': 'wu', '\u516d': 'liu',
+            '\u4e03': 'qi', '\u516b': 'ba', '\u4e07': 'wan',
+        }
+        
+        result = []
+        for char in text:
+            # Vérifier si le caractère est ASCII
+            if ord(char) < 128:
+                result.append(char)
+            else:
+                # Essayer de trouver une translittération
+                if char in translit_map:
+                    result.append(translit_map[char])
+                else:
+                    # Pour les autres caractères, essayer de les décomposer
+                    try:
+                        # Normalisation NFKD pour séparer les caractères accentués
+                        import unicodedata
+                        normalized = unicodedata.normalize('NFKD', char)
+                        # Garder seulement les parties ASCII
+                        ascii_parts = [c for c in normalized if ord(c) < 128]
+                        if ascii_parts:
+                            result.extend(ascii_parts)
+                        # Sinon, ignorer
+                    except:
+                        # Si tout échoue, ignorer le caractère
+                        pass
+        
+        return ''.join(result)
+    
     def save_report(self, filename):
         """Sauvegarde un rapport d'analyse dans un fichier"""
         try:
-            with open(filename, 'w') as f:
+            with open(filename, 'w', encoding='utf-8', errors='replace') as f:
                 f.write("="*70 + "\n")
-                f.write("RAPPORT D'ANALYSE PCAP - DÉTAILLÉ\n")
+                f.write("RAPPORT D'ANALYSE PCAP - DETAILLE\n")
                 f.write("="*70 + "\n\n")
                 
-                f.write(f"Fichier: {self.pcap_file}\n")
+                f.write(f"Fichier: {self.clean_string(self.pcap_file)}\n")
                 if self.start_time and self.end_time:
                     try:
                         duration = self.end_time - self.start_time
-                        f.write(f"Durée: {duration:.2f} secondes\n")
-                        f.write(f"Début: {datetime.fromtimestamp(float(self.start_time)).strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        f.write(f"Duree: {duration:.2f} secondes\n")
+                        f.write(f"Debut: {datetime.fromtimestamp(float(self.start_time)).strftime('%Y-%m-%d %H:%M:%S')}\n")
                         f.write(f"Fin: {datetime.fromtimestamp(float(self.end_time)).strftime('%Y-%m-%d %H:%M:%S')}\n")
                     except (TypeError, ValueError):
-                        f.write(f"Durée: Inconnue\n")
+                        f.write(f"Duree: Inconnue\n")
                 
                 f.write(f"\nPaquets totaux: {self.stats['total_packets']}\n")
                 f.write(f"Paquets entrants: {self.stats['incoming_packets']}\n")
@@ -942,55 +1011,55 @@ class PCAPAnalyzer:
                 
                 f.write(f"\nProtocoles:\n")
                 for proto, count in sorted(self.stats['protocols'].items(), key=lambda x: x[1], reverse=True):
-                    f.write(f"  {proto}: {count}\n")
+                    f.write(f"  {self.clean_string(proto)}: {count}\n")
                 
                 f.write(f"\nApplications:\n")
                 for app, count in sorted(self.stats['applications'].items(), key=lambda x: x[1], reverse=True):
-                    f.write(f"  {app}: {count}\n")
+                    f.write(f"  {self.clean_string(app)}: {count}\n")
                 
-                f.write(f"\nÉcosystèmes:\n")
+                f.write(f"\nEcosystemes:\n")
                 for eco, count in sorted(self.stats['ecosystems'].items(), key=lambda x: x[1], reverse=True):
-                    f.write(f"  {eco}: {count}\n")
+                    f.write(f"  {self.clean_string(eco)}: {count}\n")
                 
                 f.write(f"\nTop 10 adresses sources:\n")
                 for ip, count in sorted(self.stats['sources'].items(), key=lambda x: x[1], reverse=True)[:10]:
-                    f.write(f"  {ip}: {count}\n")
+                    f.write(f"  {self.clean_string(ip)}: {count}\n")
                 
                 f.write(f"\nTop 10 adresses destinations:\n")
                 for ip, count in sorted(self.stats['destinations'].items(), key=lambda x: x[1], reverse=True)[:10]:
-                    f.write(f"  {ip}: {count}\n")
+                    f.write(f"  {self.clean_string(ip)}: {count}\n")
                 
                 f.write(f"\nTop 10 ports destinations:\n")
                 for port, count in sorted(self.stats['dest_ports'].items(), key=lambda x: x[1], reverse=True)[:10]:
                     app_name = APPLICATION_PORTS.get(port, 'UNKNOWN')
-                    f.write(f"  {port} ({app_name}): {count}\n")
+                    f.write(f"  {port} ({self.clean_string(app_name)}): {count}\n")
                 
                 if self.stats['http_endpoints']:
                     f.write(f"\nEndpoints HTTP:\n")
                     for endpoint, count in sorted(self.stats['http_endpoints'].items(), key=lambda x: x[1], reverse=True)[:10]:
-                        f.write(f"  {endpoint}: {count}\n")
+                        f.write(f"  {self.clean_string(endpoint)}: {count}\n")
                 
                 if self.stats['dns_domains']:
                     f.write(f"\nDomaines DNS:\n")
                     for domain, count in sorted(self.stats['dns_domains'].items(), key=lambda x: x[1], reverse=True)[:10]:
-                        f.write(f"  {domain}: {count}\n")
+                        f.write(f"  {self.clean_string(domain)}: {count}\n")
                 
                 if self.stats['user_agents']:
                     f.write(f"\nUser-Agents:\n")
                     for ua, count in sorted(self.stats['user_agents'].items(), key=lambda x: x[1], reverse=True)[:5]:
-                        f.write(f"  {ua[:100]}: {count}\n")
+                        f.write(f"  {self.clean_string(ua[:100])}: {count}\n")
                 
-                # Données extraites
+                # Donnees extraites
                 if self.deep_analysis:
                     f.write(f"\n" + "="*70 + "\n")
-                    f.write("DONNÉES EXTRAITES\n")
+                    f.write("DONNEES EXTRAITES\n")
                     f.write("="*70 + "\n\n")
                     
                     for data_type, data_set in self.extracted_data.items():
                         if data_set:
                             f.write(f"\n{data_type.upper().replace('_', ' ')}:\n")
                             for item in sorted(data_set)[:20]:
-                                f.write(f"  - {item}\n")
+                                f.write(f"  - {self.clean_string(item)}\n")
                             if len(data_set) > 20:
                                 f.write(f"  ... et {len(data_set) - 20} de plus\n")
             
@@ -1004,17 +1073,21 @@ class PCAPAnalyzer:
         """Sauvegarde les statistiques au format JSON"""
         try:
             # Convertir defaultdict en dict standard pour la sérialisation
+            # et nettoyer les clés et valeurs
             stats_dict = {}
             for key, value in self.stats.items():
+                clean_key = self.clean_string(str(key))
                 if isinstance(value, defaultdict):
-                    stats_dict[key] = dict(value)
+                    stats_dict[clean_key] = {self.clean_string(str(k)): v for k, v in value.items()}
+                elif isinstance(value, dict):
+                    stats_dict[clean_key] = {self.clean_string(str(k)): v for k, v in value.items()}
                 else:
-                    stats_dict[key] = value
+                    stats_dict[clean_key] = value
             
-            # Convertir les sets en listes
+            # Convertir les sets en listes et nettoyer les caractères
             extracted_dict = {}
             for key, value in self.extracted_data.items():
-                extracted_dict[key] = list(value)
+                extracted_dict[key] = [self.clean_string(item) for item in value]
             
             try:
                 duration = (self.end_time - self.start_time) if self.start_time and self.end_time else None
