@@ -20,9 +20,14 @@ import os
 import argparse
 import subprocess
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from pathlib import Path
 
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
 
 # Chemins des dossiers
 BRUTES_DIR = "Brutes"
@@ -36,9 +41,53 @@ ERROR_LOG = os.path.join(ERROR_DIR, "error.log")
 # Extensions de fichiers PCAP
 PCAP_EXTENSIONS = ['.pcap', '.pcapng', '.cap']
 
+# Taille maximale des fichiers à analyser (en Mo) - 0 = pas de limite
+MAX_FILE_SIZE_MB = 0
+
+# Configuration de la rotation des logs
+LOG_MAX_BYTES = 10 * 1024 * 1024  # 10 Mo
+LOG_BACKUP_COUNT = 5  # Nombre de fichiers de backup
+
+
+# ============================================================================
+# VÉRIFICATION DES DÉPENDANCES
+# ============================================================================
+
+def check_dependencies():
+    """Vérifie que toutes les dépendances requises sont installées"""
+    print("="*70)
+    print("VERIFICATION DES DEPENDANCES")
+    print("="*70)
+    
+    all_ok = True
+    
+    # Vérifier Scapy
+    try:
+        import scapy
+        print(f"✓ Scapy: version {scapy.__version__}")
+    except ImportError:
+        print("✗ Scapy: NON INSTALLE")
+        print("  Solution: pip install scapy")
+        all_ok = False
+    
+    # Vérifier Python version
+    if sys.version_info < (3, 9):
+        print(f"✗ Python: version {sys.version_info.major}.{sys.version_info.minor} (requis: 3.9+)")
+        all_ok = False
+    else:
+        print(f"✓ Python: version {sys.version_info.major}.{sys.version_info.minor}")
+    
+    print("="*70)
+    
+    if not all_ok:
+        print("\n⚠️  Des dependances manquent. Installez-les avant de continuer.")
+        return False
+    
+    return True
+
 
 def setup_logging():
-    """Configure le logging des erreurs"""
+    """Configure le logging des erreurs avec rotation des fichiers"""
     # Créer le dossier Error s'il n'existe pas
     if not os.path.exists(ERROR_DIR):
         os.makedirs(ERROR_DIR)
@@ -47,8 +96,14 @@ def setup_logging():
     logger = logging.getLogger('PCAP_Analyzer')
     logger.setLevel(logging.ERROR)
     
-    # Handler pour le fichier de log
-    file_handler = logging.FileHandler(ERROR_LOG)
+    # Handler pour le fichier de log avec rotation
+    # Max 10 Mo par fichier, garde 5 anciens fichiers
+    file_handler = RotatingFileHandler(
+        ERROR_LOG,
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
+        encoding='utf-8'
+    )
     file_handler.setLevel(logging.ERROR)
     
     # Formatter
