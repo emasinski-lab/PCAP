@@ -227,11 +227,19 @@ def run_analysis(input_file, deep_analysis=False, output_format="txt", logger=No
     elif output_format == "json":
         output_file = get_output_filename(input_file, "stats", ".json")
         args.extend(["--json", output_file])
+    elif output_format == "html":
+        output_file = get_output_filename(input_file, "rapport", ".html")
+        args.extend(["--html", output_file])
+    elif output_format == "cef":
+        output_file = get_output_filename(input_file, "events", ".cef")
+        args.extend(["--cef", output_file])
     elif output_format == "all":
-        # Sauvegarder dans les deux formats
+        # Sauvegarder dans tous les formats
         txt_file = get_output_filename(input_file, "rapport", ".txt")
         json_file = get_output_filename(input_file, "stats", ".json")
-        args.extend(["-o", txt_file, "--json", json_file])
+        html_file = get_output_filename(input_file, "rapport", ".html")
+        cef_file = get_output_filename(input_file, "events", ".cef")
+        args.extend(["-o", txt_file, "--json", json_file, "--html", html_file, "--cef", cef_file])
     
     # Exécuter la commande
     try:
@@ -458,7 +466,19 @@ def main():
     parser.add_argument(
         '--all-formats',
         action='store_true',
-        help='Sauvegarde dans tous les formats (texte + JSON)'
+        help='Sauvegarde dans tous les formats (texte + JSON + HTML + CEF)'
+    )
+    
+    parser.add_argument(
+        '--html',
+        action='store_true',
+        help='Sauvegarde le rapport au format HTML'
+    )
+    
+    parser.add_argument(
+        '--cef',
+        action='store_true',
+        help='Sauvegarde les événements au format CEF'
     )
     
     parser.add_argument(
@@ -484,6 +504,10 @@ def main():
     output_format = "none"
     if args.all_formats:
         output_format = "all"
+    elif args.html:
+        output_format = "html"
+    elif args.cef:
+        output_format = "cef"
     elif args.json:
         output_format = "json"
     else:

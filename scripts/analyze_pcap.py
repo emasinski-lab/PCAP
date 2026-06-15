@@ -18,6 +18,8 @@ from collections import defaultdict, Counter
 import argparse
 import json
 import base64
+import hashlib
+from html import escape as html_escape
 
 # Forcer l'encodage UTF-8 pour la sortie console (surtout sous Windows)
 # Désactiver colorama qui peut causer des problèmes d'encodage
@@ -42,6 +44,16 @@ try:
         TLS_AVAILABLE = True
     except ImportError:
         TLS_AVAILABLE = False
+    
+    # Détection MPLS
+    try:
+        from scapy.layers.mpls import MPLS
+        MPLS_AVAILABLE = True
+    except ImportError:
+        MPLS_AVAILABLE = False
+        # Valeurs de protocole MPLS pour détection manuelle
+        MPLS_PROTOCOLS = {0x8847: 'MPLS', 0x8848: 'MPLS_MCAST'}
+    
     SCAPY_AVAILABLE = True
 except ImportError as e:
     SCAPY_AVAILABLE = False
@@ -49,10 +61,14 @@ except ImportError as e:
     sys.exit(1)
 
 
+# ============================================================================
+# PATTERNS POUR L'EXTRACTION D'INFORMATIONS
+# ============================================================================
+
 # Patterns pour l'extraction d'informations
 PATTERNS = {
     # Emails
-    'emails': re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'),
+    'emails': re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', re.IGNORECASE),
     
     # Numéros de téléphone (format international)
     'phone_numbers': re.compile(r'(\+\d{1,3}[- .]?)?(\d{2,4}[- .]?){2,4}\d{2,4}'),
@@ -90,6 +106,54 @@ PATTERNS = {
     # User Agents
     'user_agents': re.compile(r'(Android|iPhone|iPad|iOS|Windows|Macintosh|Linux|Chrome|Firefox|Safari|Edge)'),
 }
+
+# ============================================================================
+# PATTERNS POUR LA DÉTECTION DES DONNÉES SENSIBLES
+# ============================================================================
+
+CREDIT_CARD_PATTERNS = {
+    'Visa': re.compile(r'\b4[0-9]{12}(?:[0-9]{3})?\b'),
+    'MasterCard': re.compile(r'\b5[1-5][0-9]{14}\b'),
+    'Amex': re.compile(r'\b3[47][0-9]{13}\b'),
+    'Discover': re.compile(r'\b6(?:011|5[0-9]{2})[0-9]{12}\b'),
+}
+
+SSN_PATTERN = re.compile(r'\b[0-9]{3}-?[0-9]{2}-?[0-9]{4}\b')
+NIRA_PATTERN = re.compile(r'\b[0-9]{13}\b')
+PASSPORT_PATTERNS = [
+    re.compile(r'\b[A-Z]{1,2}[0-9]{6,9}\b'),
+    re.compile(r'\b[0-9]{8,9}\b'),
+]
+
+# ============================================================================
+# PATTERNS POUR LA DÉTECTION DES ATTAQUES
+# ============================================================================
+
+SQLI_PATTERNS = [
+    re.compile(r"('|\"|`|\b)(?:OR|AND)\s+('|\"|`|\b)", re.IGNORECASE),
+    re.compile(r'\b(?:SELECT|INSERT|UPDATE|DELETE|DROP|UNION)\b.*\b(?:FROM|INTO|TABLE)\b', re.IGNORECASE),
+    re.compile(r'\b(?:EXEC|EXECUTE|DECLARE)\b', re.IGNORECASE),
+    re.compile(r'\b(?:1=1|OR\s+1=1|AND\s+1=1)\b', re.IGNORECASE),
+]
+
+XSS_PATTERNS = [
+    re.compile(r'<script[^>]*>.*?</script>', re.IGNORECASE | re.DOTALL),
+    re.compile(r'on\w+\s*=\s*["\']?\s*javascript:', re.IGNORECASE),
+    re.compile(r'\b(?:alert|eval|document\.cookie)\s*\([^)]*\)', re.IGNORECASE),
+]
+
+COMMAND_INJECTION_PATTERNS = [
+    re.compile(r'[;|&`$><]\s*(?:ls|cat|echo|whoami|wget|curl|nc|sh|bash)', re.IGNORECASE),
+    re.compile(r'\b(?:system|exec|popen)\s*\([^)]*\)', re.IGNORECASE),
+]
+
+# ============================================================================
+# SIGNATURES POUR LA DÉTECTION DES PROTOCOLES APPLICATIFS
+# ============================================================================
+
+HTTP2_MAGIC = b'PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n'
+WEBSOCKET_PATTERN = re.compile(r'Sec-WebSocket-Key:\s*[a-zA-Z0-9+/=]+', re.IGNORECASE)
+GRPC_CONTENT_TYPE = b'application/grpc'
 
 # Ports des applications courantes
 APPLICATION_PORTS = {
@@ -237,6 +301,188 @@ class PCAPAnalyzer:
         
         self.start_time = None
         self.end_time = None
+        
+        # TCP Stream Reassembly
+        self.tcp_streams = defaultdict(list)
+        self.reassembled_streams = defaultdict(bytes)
+        
+        # Advanced analysis results
+        self.attack_findings = []
+        self.sensitive_data_findings = []
+        self.protocol_detections = defaultdict(int)
+        self.temporal_analysis = {}
+        
+        # MPLS specific
+        self.mpls_packets = 0
+        self.mpls_labels = defaultdict(int)
+        self.mpls_warnings = []
+    
+    def reassemble_tcp_streams(self):
+        """Reassemble TCP streams from packets"""
+        if not self.packets:
+            return
+        
+        for packet in self.packets:
+            if not packet.haslayer(IP) or not packet.haslayer(TCP):
+                continue
+            
+            ip = packet[IP]
+            tcp = packet[TCP]
+            endpoints = tuple(sorted([(ip.src, tcp.sport), (ip.dst, tcp.dport)]))
+            stream_key = (endpoints[0][0], endpoints[0][1], endpoints[1][0], endpoints[1][1])
+            
+            payload = bytes(tcp.payload) if tcp.payload else b''
+            seq_num = tcp.seq
+            
+            self.tcp_streams[stream_key].append({
+                'seq': seq_num,
+                'payload': payload,
+                'flags': tcp.flags,
+                'time': packet.time if hasattr(packet, 'time') else None
+            })
+        
+        for stream_key, packets in self.tcp_streams.items():
+            packets.sort(key=lambda x: x['seq'])
+            reassembled = b''.join(pkt['payload'] for pkt in packets)
+            self.reassembled_streams[stream_key] = reassembled
+    
+    def detect_application_protocols(self):
+        """Detect advanced application protocols"""
+        for stream_key, data in self.reassembled_streams.items():
+            if data.startswith(HTTP2_MAGIC):
+                self.protocol_detections['HTTP/2'] += 1
+            elif WEBSOCKET_PATTERN.search(data.decode('utf-8', errors='ignore')):
+                self.protocol_detections['WebSocket'] += 1
+            elif GRPC_CONTENT_TYPE in data:
+                self.protocol_detections['gRPC'] += 1
+    
+    def perform_temporal_analysis(self):
+        """Perform advanced temporal analysis"""
+        if not self.stats['timestamps'] or len(self.stats['timestamps']) < 2:
+            return
+        
+        timestamps = sorted(self.stats['timestamps'])
+        duration = timestamps[-1] - timestamps[0]
+        if duration <= 0:
+            duration = 1
+        
+        pps = len(timestamps) / duration
+        total_bytes = sum(self.stats['packet_sizes'])
+        throughput = total_bytes / duration
+        
+        self.temporal_analysis = {
+            'duration': duration,
+            'packets_per_second': pps,
+            'throughput_bytes_per_second': throughput,
+            'total_bytes': total_bytes,
+            'average_packet_size': total_bytes / len(timestamps) if timestamps else 0,
+        }
+    
+    def luhn_check(self, card_number):
+        """Validate credit card number using Luhn algorithm"""
+        card_number = re.sub(r'[^0-9]', '', card_number)
+        if not card_number.isdigit():
+            return False
+        
+        def digits_of(n):
+            return [int(d) for d in str(n)]
+        
+        digits = digits_of(card_number)
+        odd_digits = digits[-1::-2]
+        even_digits = digits[-2::-2]
+        checksum = sum(odd_digits)
+        for d in even_digits:
+            checksum += sum(digits_of(d * 2))
+        
+        return checksum % 10 == 0
+    
+    def detect_sensitive_data(self, payload_str):
+        """Detect sensitive data in payload"""
+        findings = []
+        
+        for card_type, pattern in CREDIT_CARD_PATTERNS.items():
+            for match in pattern.findall(payload_str):
+                if self.luhn_check(match):
+                    findings.append({'type': 'Credit Card', 'subtype': card_type, 'value': match, 'severity': 'HIGH'})
+        
+        for match in SSN_PATTERN.findall(payload_str):
+            findings.append({'type': 'SSN', 'value': match, 'severity': 'HIGH'})
+        
+        for match in NIRA_PATTERN.findall(payload_str):
+            findings.append({'type': 'NIRA', 'value': match, 'severity': 'HIGH'})
+        
+        for pattern in PASSPORT_PATTERNS:
+            for match in pattern.findall(payload_str):
+                findings.append({'type': 'Passport', 'value': match, 'severity': 'MEDIUM'})
+        
+        return findings
+    
+    def detect_attacks(self, payload_str):
+        """Detect attack patterns in payload"""
+        findings = []
+        
+        for pattern in SQLI_PATTERNS:
+            for match in pattern.findall(payload_str):
+                if isinstance(match, tuple):
+                    match = ' '.join([m for m in match if m])
+                if match:
+                    findings.append({'type': 'SQL Injection', 'pattern': str(pattern.pattern)[:50], 'value': match[:100], 'severity': 'CRITICAL'})
+        
+        for pattern in XSS_PATTERNS:
+            for match in pattern.findall(payload_str):
+                if isinstance(match, tuple):
+                    match = ' '.join([m for m in match if m])
+                if match:
+                    findings.append({'type': 'XSS', 'pattern': str(pattern.pattern)[:50], 'value': match[:100], 'severity': 'HIGH'})
+        
+        for pattern in COMMAND_INJECTION_PATTERNS:
+            for match in pattern.findall(payload_str):
+                if isinstance(match, tuple):
+                    match = ' '.join([m for m in match if m])
+                if match:
+                    findings.append({'type': 'Command Injection', 'pattern': str(pattern.pattern)[:50], 'value': match[:100], 'severity': 'CRITICAL'})
+        
+        return findings
+    
+    def detect_mpls(self, packet):
+        """Détecte et analyse les paquets MPLS"""
+        is_mpls = False
+        label = None
+        
+        # Méthode 1: Utiliser la couche MPLS si disponible
+        if MPLS_AVAILABLE and packet.haslayer(MPLS):
+            is_mpls = True
+            mpls_layer = packet[MPLS]
+            label = mpls_layer.label
+            self.mpls_labels[label] += 1
+            
+            # Essayer d'extraire l'IP originale si MPLS est décapsulé
+            if packet.haslayer(IP):
+                ip = packet[IP]
+                return True, label, ip.src, ip.dst
+            
+            return True, label, None, None
+        
+        # Méthode 2: Détection manuelle via Ether type
+        if packet.haslayer(Ether):
+            ether = packet[Ether]
+            ethertype = ether.type
+            if ethertype in MPLS_PROTOCOLS:
+                is_mpls = True
+                # Essayer de trouver l'IP après MPLS
+                if packet.haslayer(IP):
+                    ip = packet[IP]
+                    return True, ethertype, ip.src, ip.dst
+                return True, ethertype, None, None
+        
+        # Méthode 3: Détection via protocole IP
+        if packet.haslayer(IP):
+            ip = packet[IP]
+            if ip.proto == 0x8847 or ip.proto == 0x8848:
+                is_mpls = True
+                return True, ip.proto, None, None
+        
+        return False, None, None, None
     
     def is_incoming(self, packet):
         """
@@ -423,6 +669,14 @@ class PCAPAnalyzer:
             # Extraction des cookies
             self.extract_cookies(payload_str)
             
+            # Détection des données sensibles
+            sensitive_findings = self.detect_sensitive_data(payload_str)
+            self.sensitive_data_findings.extend(sensitive_findings)
+            
+            # Détection des attaques
+            attack_findings = self.detect_attacks(payload_str)
+            self.attack_findings.extend(attack_findings)
+            
         except Exception as e:
             # Ne pas bloquer l'analyse à cause d'une erreur sur un paquet
             pass
@@ -468,6 +722,25 @@ class PCAPAnalyzer:
     def analyze_packet(self, packet):
         """Analyse un paquet et met à jour les statistiques"""
         self.stats['total_packets'] += 1
+        
+        # Détection MPLS
+        is_mpls, mpls_label, mpls_src, mpls_dst = self.detect_mpls(packet)
+        if is_mpls:
+            self.mpls_packets += 1
+            if mpls_label:
+                self.mpls_labels[mpls_label] += 1
+            
+            # Ajouter un avertissement si c'est la première fois qu'on voit MPLS
+            if self.mpls_packets == 1:
+                self.mpls_warnings.append(
+                    "[ALERTE] Trafic MPLS détecté - L'analyse des adresses IP et ports peut être limitée. "
+                    "Pour une analyse complète, capturez les paquets APRES la décapsulation MPLS (sur le PE ou CE router)."
+                )
+            
+            # Si on a pu extraire des adresses IP malgré MPLS
+            if mpls_src and mpls_dst:
+                self.stats['sources'][mpls_src] += 1
+                self.stats['destinations'][mpls_dst] += 1
         
         # Déterminer la direction
         is_in = self.is_incoming(packet)
@@ -678,6 +951,17 @@ class PCAPAnalyzer:
             if self.deep_analysis and i % 100 == 0:
                 print(f"  Traité {i}/{len(self.packets)} paquets...")
         
+        # Advanced analysis (Phase 2)
+        if self.deep_analysis:
+            # TCP Stream Reassembly
+            self.reassemble_tcp_streams()
+            
+            # Application protocol detection
+            self.detect_application_protocols()
+            
+            # Temporal analysis
+            self.perform_temporal_analysis()
+        
         print("Analyse terminée")
         return True
     
@@ -690,10 +974,23 @@ class PCAPAnalyzer:
         print(f"Fichier: {self.pcap_file}")
         
         if self.start_time and self.end_time:
-            duration = self.end_time - self.start_time
-            print(f"Durée: {duration:.2f} secondes")
-            print(f"Début: {datetime.fromtimestamp(self.start_time).strftime('%Y-%m-%d %H:%M:%S')}")
-            print(f"Fin: {datetime.fromtimestamp(self.end_time).strftime('%Y-%m-%d %H:%M:%S')}")
+            try:
+                duration = float(self.end_time) - float(self.start_time)
+                print(f"Durée: {duration:.2f} secondes")
+                print(f"Début: {datetime.fromtimestamp(float(self.start_time)).strftime('%Y-%m-%d %H:%M:%S')}")
+                print(f"Fin: {datetime.fromtimestamp(float(self.end_time)).strftime('%Y-%m-%d %H:%M:%S')}")
+            except (TypeError, ValueError):
+                print("Durée: Inconnue")
+        
+        # Statistiques MPLS
+        if self.mpls_packets > 0:
+            print(f"\n[MPLS] Paquets MPLS détectés: {self.mpls_packets} ({self.mpls_packets/self.stats['total_packets']*100:.1f}%)")
+            if self.mpls_labels:
+                print("[MPLS] Labels détectés:")
+                for label, count in sorted(self.mpls_labels.items(), key=lambda x: x[1], reverse=True)[:10]:
+                    print(f"  Label {label}: {count} paquets")
+            for warning in self.mpls_warnings:
+                print(f"\n{warning}")
         
         print(f"\nPaquets totaux: {self.stats['total_packets']}")
         if self.stats['total_packets'] > 0:
@@ -1106,7 +1403,12 @@ class PCAPAnalyzer:
                 'duration': duration,
                 'stats': stats_dict,
                 'extracted_data': extracted_dict,
-                'deep_analysis': self.deep_analysis
+                'deep_analysis': self.deep_analysis,
+                'mpls_stats': {
+                    'mpls_packets': self.mpls_packets,
+                    'mpls_labels': dict(self.mpls_labels),
+                    'mpls_warnings': self.mpls_warnings
+                }
             }
             
             with open(filename, 'w') as f:
@@ -1117,6 +1419,235 @@ class PCAPAnalyzer:
         except Exception as e:
             print(f"Erreur lors de la sauvegarde JSON: {e}")
             return False
+    
+    def save_html(self, filename):
+        """Sauvegarde un rapport HTML complet"""
+        try:
+            html = []
+            html.append('<!DOCTYPE html>')
+            html.append('<html lang="fr">')
+            html.append('<head>')
+            html.append('<meta charset="UTF-8">')
+            html.append('<title>Rapport d\'Analyse PCAP</title>')
+            html.append('<style>')
+            html.append('body { font-family: Arial, sans-serif; line-height: 1.6; margin: 20px; background: #f5f5f5; }')
+            html.append('.container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }')
+            html.append('h1 { border-bottom: 2px solid #4CAF50; padding-bottom: 10px; }')
+            html.append('h2 { border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-top: 30px; }')
+            html.append('table { width: 100%; border-collapse: collapse; margin: 10px 0; }')
+            html.append('th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }')
+            html.append('th { background-color: #4CAF50; color: white; }')
+            html.append('.stat-box { display: inline-block; width: 200px; padding: 15px; margin: 10px; background: #e8f5e9; border-radius: 5px; text-align: center; }')
+            html.append('.stat-value { font-size: 24px; font-weight: bold; color: #4CAF50; }')
+            html.append('.severity-critical { background: #ffebee; color: #d32f2f; padding: 5px 10px; border-radius: 3px; font-weight: bold; }')
+            html.append('.severity-high { background: #fff3e0; color: #f57c00; padding: 5px 10px; border-radius: 3px; font-weight: bold; }')
+            html.append('.severity-medium { background: #e8f5e9; color: #388e3c; padding: 5px 10px; border-radius: 3px; font-weight: bold; }')
+            html.append('</style>')
+            html.append('</head>')
+            html.append('<body>')
+            html.append('<div class="container">')
+            
+            html.append(f'<h1>Rapport d\'Analyse PCAP</h1>')
+            html.append(f'<p><strong>Fichier:</strong> {html_escape(self.pcap_file)}</p>')
+            
+            if self.start_time and self.end_time:
+                try:
+                    duration = self.end_time - self.start_time
+                    html.append(f'<p><strong>Durée:</strong> {duration:.2f} secondes</p>')
+                    html.append(f'<p><strong>Début:</strong> {datetime.fromtimestamp(float(self.start_time)).strftime("%Y-%m-%d %H:%M:%S")}</p>')
+                    html.append(f'<p><strong>Fin:</strong> {datetime.fromtimestamp(float(self.end_time)).strftime("%Y-%m-%d %H:%M:%S")}</p>')
+                except:
+                    pass
+            
+            # Summary Statistics
+            html.append('<h2>Statistiques Générales</h2>')
+            html.append('<div>')
+            html.append(f'<div class="stat-box"><div class="stat-value">{self.stats["total_packets"]}</div><div>Paquets Totaux</div></div>')
+            html.append(f'<div class="stat-box"><div class="stat-value">{self.stats["incoming_packets"]}</div><div>Paquets Entrants</div></div>')
+            html.append(f'<div class="stat-box"><div class="stat-value">{self.stats["outgoing_packets"]}</div><div>Paquets Sortants</div></div>')
+            html.append('</div>')
+            
+            # Protocols
+            html.append('<h2>Protocoles</h2>')
+            html.append('<table>')
+            html.append('<tr><th>Protocole</th><th>Nombre</th><th>Pourcentage</th></tr>')
+            for proto, count in sorted(self.stats['protocols'].items(), key=lambda x: x[1], reverse=True):
+                percentage = (count / self.stats['ip_packets'] * 100) if self.stats['ip_packets'] > 0 else 0
+                html.append(f'<tr><td>{html_escape(proto)}</td><td>{count}</td><td>{percentage:.1f}%</td></tr>')
+            html.append('</table>')
+            
+            # Applications
+            html.append('<h2>Applications Détectées</h2>')
+            html.append('<table>')
+            html.append('<tr><th>Application</th><th>Nombre</th></tr>')
+            for app, count in sorted(self.stats['applications'].items(), key=lambda x: x[1], reverse=True):
+                html.append(f'<tr><td>{html_escape(app)}</td><td>{count}</td></tr>')
+            html.append('</table>')
+            
+            # Advanced Protocols
+            if self.protocol_detections:
+                html.append('<h2>Protocoles Applicatifs Avancés</h2>')
+                html.append('<table>')
+                html.append('<tr><th>Protocole</th><th>Nombre</th></tr>')
+                for proto, count in sorted(self.protocol_detections.items(), key=lambda x: x[1], reverse=True):
+                    html.append(f'<tr><td>{html_escape(proto)}</td><td>{count}</td></tr>')
+                html.append('</table>')
+            
+            # Temporal Analysis
+            if self.temporal_analysis:
+                html.append('<h2>Analyse Temporelle</h2>')
+                html.append('<table>')
+                html.append('<tr><th>Métrique</th><th>Valeur</th></tr>')
+                for key, value in self.temporal_analysis.items():
+                    if isinstance(value, float):
+                        html.append(f'<tr><td>{html_escape(str(key))}</td><td>{value:.2f}</td></tr>')
+                    else:
+                        html.append(f'<tr><td>{html_escape(str(key))}</td><td>{html_escape(str(value))}</td></tr>')
+                html.append('</table>')
+            
+            # MPLS Statistics
+            if self.mpls_packets > 0:
+                html.append('<h2>Statistiques MPLS</h2>')
+                html.append('<div class="section">')
+                html.append(f'<p><strong>Paquets MPLS:</strong> {self.mpls_packets} ({self.mpls_packets/self.stats["total_packets"]*100:.1f}%)</p>')
+                if self.mpls_labels:
+                    html.append('<table>')
+                    html.append('<tr><th>Label MPLS</th><th>Nombre de paquets</th></tr>')
+                    for label, count in sorted(self.mpls_labels.items(), key=lambda x: x[1], reverse=True)[:10]:
+                        html.append(f'<tr><td>{label}</td><td>{count}</td></tr>')
+                    html.append('</table>')
+                for warning in self.mpls_warnings:
+                    html.append(f'<p style="color: #d32f2f; font-weight: bold;">{html_escape(warning)}</p>')
+                html.append('</div>')
+            
+            # Attack Findings
+            if self.attack_findings:
+                html.append('<h2>Détections d\'Attaques</h2>')
+                html.append('<table>')
+                html.append('<tr><th>Type</th><th>Valeur</th><th>Sévérité</th></tr>')
+                for finding in self.attack_findings:
+                    severity_class = f'severity-{finding["severity"].lower()}'
+                    html.append(f'<tr><td>{html_escape(finding["type"])}</td><td>{html_escape(finding["value"][:100])}</td><td><span class="{severity_class}">{html_escape(finding["severity"])}</span></td></tr>')
+                html.append('</table>')
+            
+            # Sensitive Data Findings
+            if self.sensitive_data_findings:
+                html.append('<h2>Données Sensibles Détectées</h2>')
+                html.append('<table>')
+                html.append('<tr><th>Type</th><th>Valeur</th><th>Sévérité</th></tr>')
+                for finding in self.sensitive_data_findings:
+                    severity_class = f'severity-{finding["severity"].lower()}'
+                    html.append(f'<tr><td>{html_escape(finding["type"])}</td><td>{html_escape(finding["value"])}</td><td><span class="{severity_class}">{html_escape(finding["severity"])}</span></td></tr>')
+                html.append('</table>')
+            
+            # Extracted Data
+            if self.deep_analysis and any(self.extracted_data.values()):
+                html.append('<h2>Données Extraites</h2>')
+                for data_type, data_set in self.extracted_data.items():
+                    if data_set:
+                        html.append(f'<h3>{html_escape(data_type.upper().replace("_", " "))}</h3>')
+                        html.append('<ul>')
+                        for item in sorted(data_set)[:20]:
+                            html.append(f'<li>{html_escape(str(item))}</li>')
+                        if len(data_set) > 20:
+                            html.append(f'<li><em>... et {len(data_set) - 20} de plus</em></li>')
+                        html.append('</ul>')
+            
+            html.append('<p><em>Rapport généré par PCAP Analyzer - ' + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + '</em></p>')
+            html.append('</div>')
+            html.append('</body>')
+            html.append('</html>')
+            
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(html))
+            
+            print(f"Rapport HTML sauvegardé: {filename}")
+            return True
+        except Exception as e:
+            print(f"Erreur lors de la sauvegarde HTML: {e}")
+            return False
+    
+    def save_cef(self, filename):
+        """Sauvegarde les événements au format CEF"""
+        try:
+            cef_events = []
+            cef_version = "0"
+            device_vendor = "PCAP Analyzer"
+            device_product = "Network Traffic Analyzer"
+            device_version = "1.0"
+            
+            # Attack findings
+            for i, finding in enumerate(self.attack_findings):
+                signature_id = f"ATTACK-{i+1:04d}"
+                name = finding['type']
+                severity = self.cef_severity_to_num(finding['severity'])
+                extension = {
+                    'rt': datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                    'msg': self.clean_string(finding['value'][:200]),
+                }
+                event = f"CEF:{cef_version}|{device_vendor}|{device_product}|{device_version}|{signature_id}|{name}|{severity}|{self.format_cef_extension(extension)}"
+                cef_events.append(event)
+            
+            # Sensitive data findings
+            for i, finding in enumerate(self.sensitive_data_findings):
+                signature_id = f"SENSITIVE-{i+1:04d}"
+                name = finding['type']
+                severity = self.cef_severity_to_num(finding['severity'])
+                extension = {
+                    'rt': datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                    'dataType': self.clean_string(finding.get('subtype', finding['type'])),
+                    'dataValue': self.clean_string(finding['value']),
+                }
+                event = f"CEF:{cef_version}|{device_vendor}|{device_product}|{device_version}|{signature_id}|{name}|{severity}|{self.format_cef_extension(extension)}"
+                cef_events.append(event)
+            
+            # MPLS Detection
+            if self.mpls_packets > 0:
+                signature_id = "MPLS-0001"
+                name = "MPLS Traffic Detected"
+                severity = "4"  # Medium
+                extension = {
+                    'rt': datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                    'mplsPackets': str(self.mpls_packets),
+                    'mplsPercentage': f"{self.mpls_packets/self.stats['total_packets']*100:.1f}",
+                    'msg': 'MPLS traffic detected - analysis may be limited',
+                }
+                event = f"CEF:{cef_version}|{device_vendor}|{device_product}|{device_version}|{signature_id}|{name}|{severity}|{self.format_cef_extension(extension)}"
+                cef_events.append(event)
+            
+            # Summary
+            if self.stats['total_packets'] > 0:
+                signature_id = "SUMMARY-0001"
+                name = "Network Traffic Summary"
+                severity = "1"
+                extension = {
+                    'rt': datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                    'totalPackets': str(self.stats['total_packets']),
+                    'incomingPackets': str(self.stats['incoming_packets']),
+                    'outgoingPackets': str(self.stats['outgoing_packets']),
+                    'mplsPackets': str(self.mpls_packets),
+                }
+                event = f"CEF:{cef_version}|{device_vendor}|{device_product}|{device_version}|{signature_id}|{name}|{severity}|{self.format_cef_extension(extension)}"
+                cef_events.append(event)
+            
+            with open(filename, 'w', encoding='utf-8') as f:
+                for event in cef_events:
+                    f.write(event + '\n')
+            
+            print(f"Événements CEF sauvegardés: {filename} ({len(cef_events)} événements)")
+            return True
+        except Exception as e:
+            print(f"Erreur lors de la sauvegarde CEF: {e}")
+            return False
+    
+    def cef_severity_to_num(self, severity):
+        """Convertit la sévérité en nombre CEF"""
+        severity_map = {'CRITICAL': '10', 'HIGH': '7', 'MEDIUM': '4', 'LOW': '1'}
+        return severity_map.get(severity.upper(), '1')
+    
+    def format_cef_extension(self, extension_dict):
+        """Formate le champ d'extension CEF"""
+        return ' '.join(f"{k}={v}" for k, v in extension_dict.items())
 
 
 def main():
@@ -1172,6 +1703,16 @@ Exemples:
         help='Désactiver l\'extraction du payload (plus rapide)'
     )
     
+    parser.add_argument(
+        '--html',
+        help='Sauvegarder le rapport au format HTML'
+    )
+    
+    parser.add_argument(
+        '--cef',
+        help='Sauvegarder les événements au format CEF'
+    )
+    
     args = parser.parse_args()
     
     # Gestion des arguments
@@ -1215,6 +1756,12 @@ Exemples:
     
     if args.json:
         analyzer.save_json(args.json)
+    
+    if args.html:
+        analyzer.save_html(args.html)
+    
+    if args.cef:
+        analyzer.save_cef(args.cef)
     
     return 0
 
